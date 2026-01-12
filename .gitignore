@@ -8,3 +8,22 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Streamlit secrets (contains YNAB API token)
+.streamlit/secrets.toml
+
+# SQLite database cache
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
