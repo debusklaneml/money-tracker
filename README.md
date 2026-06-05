@@ -28,6 +28,29 @@ uv run streamlit run app.py
 Then open the **Import** page and upload an OFX or QFX export from your bank
 (look for *Download → Quicken (.qfx)* or *Microsoft Money (.ofx)*).
 
+## Development
+
+BUD's UI is migrating from Streamlit to a React SPA backed by a thin FastAPI
+service. During the migration all three run side by side; **Streamlit stays
+fully runnable until the migration's final phase.**
+
+Run the backend and frontend dev servers in two terminals:
+
+```bash
+# Terminal 1 — FastAPI API on :8000 (auto-reload)
+uv run uvicorn backend.main:app --reload
+
+# Terminal 2 — Vite dev server on :5173 (proxies /api → :8000)
+cd frontend && npm install && npm run dev
+```
+
+Then open http://localhost:5173. The legacy Streamlit app remains available
+with `uv run streamlit run app.py` (see Quick Start).
+
+> **Note:** if `uv` is not installed, use the project virtualenv directly:
+> `.venv/bin/python -m uvicorn backend.main:app --reload` and
+> `.venv/bin/python -m pytest`.
+
 ## How the budgeting math works
 
 All money is tracked in milliunits (1/1000 of a dollar) to avoid float errors.
