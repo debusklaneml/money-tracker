@@ -1,2 +1,6 @@
 {"id":"int-d8b25b6b","kind":"field_change","created_at":"2026-06-04T21:04:43.239627Z","actor":"Les DeBusk-Lane","issue_id":"bud-xgj","extra":{"field":"priority","new_value":"1","old_value":"2"}}
 {"id":"int-819c1516","kind":"field_change","created_at":"2026-06-04T21:04:43.387808Z","actor":"Les DeBusk-Lane","issue_id":"bud-71b","extra":{"field":"priority","new_value":"1","old_value":"2"}}
+{"id":"int-03d06aab","kind":"field_change","created_at":"2026-06-05T01:42:20.565191Z","actor":"Les DeBusk-Lane","issue_id":"bud-ch9","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-1d780cb3","kind":"field_change","created_at":"2026-06-05T01:42:20.793519Z","actor":"Les DeBusk-Lane","issue_id":"bud-epu","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-14043911","kind":"field_change","created_at":"2026-06-05T01:42:21.035085Z","actor":"Les DeBusk-Lane","issue_id":"bud-buc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-f13d4e06","kind":"field_change","created_at":"2026-06-05T01:42:26.515484Z","actor":"Les DeBusk-Lane","issue_id":"bud-32z","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
