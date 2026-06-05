@@ -31,3 +31,7 @@ Thumbs.db
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+
+# Frontend (Vite + React)
+frontend/node_modules
+frontend/dist
