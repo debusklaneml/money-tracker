@@ -1,6 +1,7 @@
 """SQLite database manager for local data caching."""
 
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, date
 from pathlib import Path
@@ -106,6 +107,19 @@ CREATE TABLE IF NOT EXISTS monthly_budgets (
     FOREIGN KEY (budget_id) REFERENCES budgets(id)
 );
 
+-- Monthly summary: budget-month totals (Ready to Assign, Age of Money, etc.)
+CREATE TABLE IF NOT EXISTS monthly_summary (
+    budget_id TEXT NOT NULL,
+    month TEXT NOT NULL,
+    income INTEGER DEFAULT 0,
+    budgeted INTEGER DEFAULT 0,
+    activity INTEGER DEFAULT 0,
+    to_be_budgeted INTEGER DEFAULT 0,
+    age_of_money INTEGER,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (budget_id, month)
+);
+
 -- Sync metadata for delta requests
 CREATE TABLE IF NOT EXISTS sync_metadata (
     budget_id TEXT NOT NULL,
@@ -113,6 +127,32 @@ CREATE TABLE IF NOT EXISTS sync_metadata (
     last_knowledge_of_server INTEGER,
     last_sync_at TIMESTAMP,
     PRIMARY KEY (budget_id, endpoint)
+);
+
+-- Auto-categorization rules: match a payee/memo pattern to a category
+CREATE TABLE IF NOT EXISTS category_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_id TEXT NOT NULL,
+    match_field TEXT NOT NULL DEFAULT 'payee',   -- payee | memo
+    match_type TEXT NOT NULL DEFAULT 'contains',  -- contains | equals | regex
+    pattern TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 100,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One row per imported statement file, for dedupe history and undo
+CREATE TABLE IF NOT EXISTS import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_id TEXT NOT NULL,
+    account_id TEXT,
+    filename TEXT,
+    file_hash TEXT,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    txn_count INTEGER DEFAULT 0,
+    duplicate_count INTEGER DEFAULT 0,
+    date_min TEXT,
+    date_max TEXT
 );
 
 -- Alert history
@@ -142,6 +182,32 @@ CREATE INDEX IF NOT EXISTS idx_monthly_budgets_budget_month ON monthly_budgets(b
 """
 
 
+# Without YNAB there is a single, local budget. Keep the budget_id plumbing
+# (so multi-budget stays possible later) but always use this id.
+LOCAL_BUDGET_ID = "local"
+LOCAL_BUDGET_NAME = "My Budget"
+
+# Seeded the first time a fresh budget is created; fully editable afterwards.
+DEFAULT_CATEGORIES = [
+    ("Bills", "Rent / Mortgage"),
+    ("Bills", "Electric"),
+    ("Bills", "Water"),
+    ("Bills", "Internet"),
+    ("Bills", "Phone"),
+    ("Bills", "Insurance"),
+    ("Needs", "Groceries"),
+    ("Needs", "Transportation"),
+    ("Needs", "Gas"),
+    ("Needs", "Medical"),
+    ("Wants", "Dining Out"),
+    ("Wants", "Entertainment"),
+    ("Wants", "Shopping"),
+    ("Wants", "Subscriptions"),
+    ("Savings", "Emergency Fund"),
+    ("Savings", "Vacation"),
+]
+
+
 class Database:
     """SQLite database manager with connection pooling."""
 
@@ -151,11 +217,51 @@ class Database:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+        self._migrate()
+        self.ensure_local_budget()
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
         with self._get_connection() as conn:
             conn.executescript(SCHEMA)
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the original schema. Safe to re-run."""
+        migrations = [
+            "ALTER TABLE categories ADD COLUMN sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE accounts ADD COLUMN account_number TEXT",
+            "ALTER TABLE transactions ADD COLUMN import_batch_id INTEGER",
+        ]
+        with self._get_connection() as conn:
+            for stmt in migrations:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+
+    def ensure_local_budget(self) -> str:
+        """Ensure the single local budget exists, seeding default categories once."""
+        with self._get_connection() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM budgets WHERE id = ?", (LOCAL_BUDGET_ID,)
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO budgets (id, name) VALUES (?, ?)",
+                    (LOCAL_BUDGET_ID, LOCAL_BUDGET_NAME),
+                )
+            has_categories = conn.execute(
+                "SELECT 1 FROM categories WHERE budget_id = ? LIMIT 1", (LOCAL_BUDGET_ID,)
+            ).fetchone()
+            if not has_categories:
+                for order, (group, name) in enumerate(DEFAULT_CATEGORIES):
+                    conn.execute(
+                        """INSERT INTO categories
+                           (id, budget_id, category_group_id, category_group_name, name, sort_order)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (uuid.uuid4().hex, LOCAL_BUDGET_ID, group.lower(), group, name, order),
+                    )
+        return LOCAL_BUDGET_ID
 
     @contextmanager
     def _get_connection(self) -> Iterator[sqlite3.Connection]:
@@ -432,6 +538,44 @@ class Database:
                 (budget_id, month)
             ).fetchall()
 
+    def update_monthly_budget_amounts(self, budget_id: str, month: str, category_id: str,
+                                       budgeted: int, activity: int, balance: int) -> None:
+        """Update budgeted/activity/balance for a single category-month after a write-back."""
+        self.upsert_monthly_budget(budget_id, month, category_id, budgeted, activity, balance)
+        # Keep the categories table (used by the dashboard) in sync for the current month.
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE categories SET budgeted = ?, activity = ?, balance = ? WHERE id = ?",
+                (budgeted, activity, balance, category_id)
+            )
+
+    # Monthly summary operations
+    def upsert_monthly_summary(self, budget_id: str, month: str, income: int, budgeted: int,
+                               activity: int, to_be_budgeted: int,
+                               age_of_money: Optional[int]) -> None:
+        """Insert or update a budget-month summary (Ready to Assign, Age of Money, ...)."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO monthly_summary (budget_id, month, income, budgeted, activity, to_be_budgeted, age_of_money, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(budget_id, month) DO UPDATE SET
+                    income = excluded.income,
+                    budgeted = excluded.budgeted,
+                    activity = excluded.activity,
+                    to_be_budgeted = excluded.to_be_budgeted,
+                    age_of_money = excluded.age_of_money,
+                    updated_at = excluded.updated_at
+            """, (budget_id, month, income, budgeted, activity, to_be_budgeted,
+                  age_of_money, datetime.now()))
+
+    def get_monthly_summary(self, budget_id: str, month: str) -> Optional[sqlite3.Row]:
+        """Get the summary row for a budget-month, or None if not synced yet."""
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT * FROM monthly_summary WHERE budget_id = ? AND month = ?",
+                (budget_id, month)
+            ).fetchone()
+
     # Sync metadata operations
     def get_sync_knowledge(self, budget_id: str, endpoint: str) -> Optional[int]:
         """Get last knowledge of server for delta sync."""
@@ -575,3 +719,272 @@ class Database:
                 WHERE c.budget_id = ? AND c.hidden = 0
                 ORDER BY c.category_group_name, c.name
             """, (current_month, budget_id)).fetchall()
+
+    # ------------------------------------------------------------------
+    # Category management (local, user-owned)
+    # ------------------------------------------------------------------
+    def create_category(self, budget_id: str, group: str, name: str) -> str:
+        """Create a new category; returns its id."""
+        cat_id = uuid.uuid4().hex
+        with self._get_connection() as conn:
+            next_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories WHERE budget_id = ?",
+                (budget_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO categories
+                   (id, budget_id, category_group_id, category_group_name, name, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (cat_id, budget_id, group.lower(), group, name, next_order),
+            )
+        return cat_id
+
+    def update_category(self, category_id: str, name: str, group: str) -> None:
+        """Rename a category and/or move it to another group."""
+        with self._get_connection() as conn:
+            conn.execute(
+                """UPDATE categories
+                   SET name = ?, category_group_name = ?, category_group_id = ?
+                   WHERE id = ?""",
+                (name, group, group.lower(), category_id),
+            )
+
+    def set_category_hidden(self, category_id: str, hidden: bool) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE categories SET hidden = ? WHERE id = ?",
+                (int(hidden), category_id),
+            )
+
+    def delete_category(self, category_id: str) -> None:
+        """Delete a category; its transactions fall back to uncategorized."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE transactions SET category_id = NULL, category_name = NULL WHERE category_id = ?",
+                (category_id,),
+            )
+            conn.execute("DELETE FROM monthly_budgets WHERE category_id = ?", (category_id,))
+            conn.execute("DELETE FROM category_rules WHERE category_id = ?", (category_id,))
+            conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+
+    # ------------------------------------------------------------------
+    # Imports: accounts, dedupe, and inserting parsed transactions
+    # ------------------------------------------------------------------
+    def upsert_imported_account(self, budget_id: str, account_number: str, name: str,
+                                account_type: str, on_budget: bool,
+                                balance: int) -> str:
+        """Create/update an account keyed by its bank account number; returns id."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM accounts WHERE budget_id = ? AND account_number = ?",
+                (budget_id, account_number),
+            ).fetchone()
+            account_id = row["id"] if row else uuid.uuid4().hex
+            conn.execute(
+                """INSERT INTO accounts
+                   (id, budget_id, name, type, on_budget, closed, balance,
+                    cleared_balance, uncleared_balance, account_number)
+                   VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       name = excluded.name,
+                       type = excluded.type,
+                       balance = excluded.balance,
+                       cleared_balance = excluded.cleared_balance,
+                       account_number = excluded.account_number""",
+                (account_id, budget_id, name, account_type, int(on_budget),
+                 balance, balance, account_number),
+            )
+        return account_id
+
+    def transaction_exists(self, account_id: str, fitid: str) -> bool:
+        """Dedupe check: has this bank FITID already been imported for this account?"""
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT 1 FROM transactions WHERE account_id = ? AND import_id = ? LIMIT 1",
+                (account_id, fitid),
+            ).fetchone() is not None
+
+    def insert_imported_transaction(self, budget_id: str, account_id: str, account_name: str,
+                                    fitid: str, txn_date: str, amount: int,
+                                    payee_name: Optional[str], memo: Optional[str],
+                                    category_id: Optional[str], category_name: Optional[str],
+                                    import_batch_id: int) -> str:
+        """Insert one parsed transaction. import_id holds the bank FITID."""
+        txn_id = uuid.uuid4().hex
+        with self._get_connection() as conn:
+            conn.execute(
+                """INSERT INTO transactions
+                   (id, budget_id, account_id, account_name, date, amount, memo,
+                    cleared, approved, payee_name, category_id, category_name,
+                    import_id, import_batch_id, deleted)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'cleared', 1, ?, ?, ?, ?, ?, 0)""",
+                (txn_id, budget_id, account_id, account_name, txn_date, amount, memo,
+                 payee_name, category_id, category_name, fitid, import_batch_id),
+            )
+        return txn_id
+
+    def create_import_batch(self, budget_id: str, account_id: Optional[str], filename: str,
+                            file_hash: str) -> int:
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """INSERT INTO import_batches (budget_id, account_id, filename, file_hash)
+                   VALUES (?, ?, ?, ?)""",
+                (budget_id, account_id, filename, file_hash),
+            )
+            return cur.lastrowid
+
+    def finalize_import_batch(self, batch_id: int, txn_count: int, duplicate_count: int,
+                              date_min: Optional[str], date_max: Optional[str]) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """UPDATE import_batches
+                   SET txn_count = ?, duplicate_count = ?, date_min = ?, date_max = ?
+                   WHERE id = ?""",
+                (txn_count, duplicate_count, date_min, date_max, batch_id),
+            )
+
+    def file_hash_imported(self, budget_id: str, file_hash: str) -> bool:
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT 1 FROM import_batches WHERE budget_id = ? AND file_hash = ? AND txn_count > 0 LIMIT 1",
+                (budget_id, file_hash),
+            ).fetchone() is not None
+
+    def get_import_batches(self, budget_id: str, limit: int = 50) -> list[sqlite3.Row]:
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT * FROM import_batches WHERE budget_id = ? ORDER BY imported_at DESC LIMIT ?",
+                (budget_id, limit),
+            ).fetchall()
+
+    # ------------------------------------------------------------------
+    # Transaction categorization
+    # ------------------------------------------------------------------
+    def set_transaction_category(self, txn_id: str, category_id: Optional[str],
+                                 category_name: Optional[str]) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE transactions SET category_id = ?, category_name = ? WHERE id = ?",
+                (category_id, category_name, txn_id),
+            )
+
+    def get_uncategorized_transactions(self, budget_id: str, limit: int = 500) -> list[sqlite3.Row]:
+        with self._get_connection() as conn:
+            return conn.execute(
+                """SELECT * FROM transactions
+                   WHERE budget_id = ? AND deleted = 0 AND category_id IS NULL
+                   ORDER BY date DESC LIMIT ?""",
+                (budget_id, limit),
+            ).fetchall()
+
+    def count_uncategorized(self, budget_id: str) -> int:
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM transactions WHERE budget_id = ? AND deleted = 0 AND category_id IS NULL",
+                (budget_id,),
+            ).fetchone()[0]
+
+    # ------------------------------------------------------------------
+    # Auto-categorization rules
+    # ------------------------------------------------------------------
+    def add_rule(self, budget_id: str, pattern: str, category_id: str,
+                 match_field: str = "payee", match_type: str = "contains",
+                 priority: int = 100) -> int:
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """INSERT INTO category_rules
+                   (budget_id, match_field, match_type, pattern, category_id, priority)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (budget_id, match_field, match_type, pattern, category_id, priority),
+            )
+            return cur.lastrowid
+
+    def get_rules(self, budget_id: str) -> list[sqlite3.Row]:
+        with self._get_connection() as conn:
+            return conn.execute(
+                """SELECT r.*, c.name AS category_name, c.category_group_name AS group_name
+                   FROM category_rules r JOIN categories c ON r.category_id = c.id
+                   WHERE r.budget_id = ? ORDER BY r.priority, r.id""",
+                (budget_id,),
+            ).fetchall()
+
+    def delete_rule(self, rule_id: int) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM category_rules WHERE id = ?", (rule_id,))
+
+    # ------------------------------------------------------------------
+    # Engine aggregates (money in milliunits)
+    # ------------------------------------------------------------------
+    def _sum_map(self, sql: str, params: tuple) -> dict[str, int]:
+        with self._get_connection() as conn:
+            return {r[0]: int(r[1] or 0) for r in conn.execute(sql, params).fetchall()}
+
+    def assigned_by_category(self, budget_id: str, through_month: str) -> dict[str, int]:
+        """Cumulative assigned per category for all months up to and incl. through_month."""
+        return self._sum_map(
+            """SELECT category_id, SUM(budgeted) FROM monthly_budgets
+               WHERE budget_id = ? AND month <= ? GROUP BY category_id""",
+            (budget_id, through_month),
+        )
+
+    def assigned_in_month(self, budget_id: str, month: str) -> dict[str, int]:
+        return self._sum_map(
+            """SELECT category_id, SUM(budgeted) FROM monthly_budgets
+               WHERE budget_id = ? AND month = ? GROUP BY category_id""",
+            (budget_id, month),
+        )
+
+    def activity_by_category(self, budget_id: str, through_month: str) -> dict[str, int]:
+        """Cumulative spending/activity per category up to and incl. through_month."""
+        return self._sum_map(
+            """SELECT category_id, SUM(amount) FROM transactions
+               WHERE budget_id = ? AND deleted = 0 AND category_id IS NOT NULL
+                 AND strftime('%Y-%m-01', date) <= ?
+               GROUP BY category_id""",
+            (budget_id, through_month),
+        )
+
+    def activity_in_month(self, budget_id: str, month: str) -> dict[str, int]:
+        return self._sum_map(
+            """SELECT category_id, SUM(amount) FROM transactions
+               WHERE budget_id = ? AND deleted = 0 AND category_id IS NOT NULL
+                 AND strftime('%Y-%m-01', date) = ?
+               GROUP BY category_id""",
+            (budget_id, month),
+        )
+
+    def income_total(self, budget_id: str, through_month: str) -> int:
+        """Cumulative income = uncategorized inflows up to and incl. through_month."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """SELECT SUM(amount) FROM transactions
+                   WHERE budget_id = ? AND deleted = 0 AND category_id IS NULL AND amount > 0
+                     AND strftime('%Y-%m-01', date) <= ?""",
+                (budget_id, through_month),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def income_in_month(self, budget_id: str, month: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """SELECT SUM(amount) FROM transactions
+                   WHERE budget_id = ? AND deleted = 0 AND category_id IS NULL AND amount > 0
+                     AND strftime('%Y-%m-01', date) = ?""",
+                (budget_id, month),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def total_assigned(self, budget_id: str, through_month: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT SUM(budgeted) FROM monthly_budgets WHERE budget_id = ? AND month <= ?",
+                (budget_id, through_month),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def clear_imported_data(self, budget_id: str) -> None:
+        """Remove imported transactions, accounts and import history.
+        Keeps categories, rules and assignments so the budget structure survives."""
+        with self._get_connection() as conn:
+            for table in ("transactions", "accounts", "import_batches", "alerts"):
+                conn.execute(f"DELETE FROM {table} WHERE budget_id = ?", (budget_id,))

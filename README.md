@@ -1,83 +1,69 @@
-# BUD - Budget Dashboard
+# BUD — Local-First Budgeting
 
-A Streamlit-based financial tracking application that connects to YNAB (You Need A Budget) to provide spending insights, anomaly detection, and budget monitoring.
+A zero-based budgeting app in the spirit of "give every dollar a job." You
+import your bank statements (OFX/QFX), categorize transactions, and assign every
+dollar to a category. **No bank connection, no YNAB, no third parties** — all
+data lives in a local SQLite database on your machine.
 
 ## Features
 
-- **Dashboard**: Overview of spending, budget status, and recent transactions
-- **Spending Analysis**: Deep dive into spending patterns by category, time period, and payee
-- **Smart Alerts**:
-  - Unusual spending detection using Modified Z-Score algorithm
-  - Budget overspending alerts
-  - Recurring transaction monitoring (amount changes, missing transactions)
-- **Recurring Transactions**: View and track scheduled transactions
+- **Budget** — Ready to Assign front and center; assign every dollar to an
+  envelope, move money to cover overspending. Balances roll over month to month.
+- **Import** — Upload OFX/QFX statements. Transactions are deduplicated by the
+  bank's FITID, so re-importing an overlapping statement never doubles up.
+- **Transactions** — Categorize transactions and build auto-rules
+  (payee/memo → category) that apply on every future import.
+- **Categories** — Create, rename, regroup, and remove your envelopes. Ships
+  with sensible defaults you can edit.
+- **Insights** — Dashboard, spending analysis, and statistical alerts
+  (Modified Z-Score unusual-spending detection).
 
 ## Quick Start
 
-### 1. Install dependencies
-
 ```bash
 uv sync
-```
-
-### 2. Configure YNAB API Token
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-YNAB_ACCESS_TOKEN = "your-personal-access-token"
-```
-
-Get your token from: **YNAB Settings > Developer Settings > Personal Access Tokens**
-
-### 3. Run the app
-
-```bash
 uv run streamlit run app.py
 ```
 
-## Configuration
+Then open the **Import** page and upload an OFX or QFX export from your bank
+(look for *Download → Quicken (.qfx)* or *Microsoft Money (.ofx)*).
 
-### Alert Thresholds
+## How the budgeting math works
 
-Add to `.streamlit/secrets.toml`:
+All money is tracked in milliunits (1/1000 of a dollar) to avoid float errors.
 
-```toml
-[alert_thresholds]
-unusual_spending_warning = 2.5    # Modified Z-Score threshold for warning
-unusual_spending_critical = 3.5   # Modified Z-Score threshold for critical
-budget_approaching = 0.90         # Budget percentage to trigger warning (90%)
-recurring_days_warning = 3        # Days past due before warning
-recurring_days_critical = 7       # Days past due before critical
-```
+- **Income** = uncategorized inflows (money entering the budget).
+- **Assigning** moves money from Ready to Assign into a category for a month.
+- **Activity** = the signed sum of a category's categorized transactions.
+- **Available** = Σ(assigned + activity) for a category across all months to
+  date — so unspent money rolls forward.
+- **Ready to Assign** = Σ(all income) − Σ(all assigned). Spending does *not*
+  reduce Ready to Assign; it reduces a category's Available.
 
 ## Data Privacy
 
-- All data is cached locally in SQLite (`~/.bud/cache.db`)
-- No data is sent to third parties
-- API communication is directly with YNAB over HTTPS
-
-## Rate Limits
-
-YNAB API allows 200 requests per hour. BUD uses delta sync (`last_knowledge_of_server`) to minimize API calls.
+- All data is stored locally in SQLite (`~/.bud/cache.db`).
+- Nothing is uploaded anywhere; there is no network/bank integration.
 
 ## Project Structure
 
 ```
 bud/
-├── app.py                    # Main Streamlit application
-├── pages/                    # Streamlit pages
-│   ├── 1_Dashboard.py
-│   ├── 2_Spending_Analysis.py
-│   ├── 3_Alerts.py
-│   ├── 4_Recurring.py
-│   └── 5_Settings.py
+├── app.py                  # Entry point + navigation + sidebar
+├── pages/                  # Budget, Import, Transactions, Categories, Insights
 ├── src/
-│   ├── api/                  # YNAB API client
-│   ├── cache/                # SQLite database & sync
-│   ├── alerts/               # Alert detection algorithms
-│   └── utils/                # Utilities
-└── .streamlit/               # Streamlit configuration
+│   ├── imports/            # OFX/QFX parser + import service
+│   ├── budget/             # The budgeting engine (RTA, rollover, available)
+│   ├── cache/              # SQLite database
+│   ├── alerts/             # Alert detection algorithms
+│   └── utils/              # Formatters, config
+└── tests/                  # Engine + import test suite
+```
+
+## Tests
+
+```bash
+uv run pytest
 ```
 
 ## License
