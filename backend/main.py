@@ -13,7 +13,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import budget, categories, imports, transactions
+from backend.routers import (
+    accounts,
+    alerts,
+    budget,
+    categories,
+    imports,
+    insights,
+    rules,
+    settings,
+    transactions,
+)
 
 app = FastAPI(title="bud API")
 
@@ -38,6 +48,11 @@ app.include_router(budget.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
 app.include_router(transactions.router, prefix="/api")
 app.include_router(imports.router, prefix="/api")
+app.include_router(rules.router, prefix="/api")
+app.include_router(accounts.router, prefix="/api")
+app.include_router(insights.router, prefix="/api")
+app.include_router(alerts.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 
 # Placeholder SPA mount. After the Phase 5 frontend build produces
 # ``frontend/dist``, this serves the compiled single-page app. It is mounted
