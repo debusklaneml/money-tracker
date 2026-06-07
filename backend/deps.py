@@ -48,6 +48,18 @@ def get_db() -> Database:
     return Database(db_path)
 
 
+@lru_cache(maxsize=1)
+def get_budget_id() -> str:
+    """Provide the single local budget id, ensuring it (and its default
+    categories) exists on first use.
+
+    Routers that call :class:`Database` methods directly need a ``budget_id``;
+    this is the FastAPI dependency that supplies it. Idempotent and cached, so
+    the local budget is seeded at most once per process.
+    """
+    return get_db().ensure_local_budget()
+
+
 def get_engine() -> BudgetEngine:
     """Provide a :class:`BudgetEngine` wired to the shared Database."""
     return BudgetEngine(get_db())

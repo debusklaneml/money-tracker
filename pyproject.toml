@@ -10,12 +10,14 @@ dependencies = [
     "pandas>=2.3.3",
     "plotly>=6.5.1",
     "pydantic>=2.12.5",
+    "python-multipart>=0.0.9",
     "streamlit>=1.52.2",
     "uvicorn[standard]>=0.34",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28",
     "pytest>=9.0.2",
     "ruff>=0.14.11",
 ]

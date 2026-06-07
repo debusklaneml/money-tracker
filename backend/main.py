@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from backend.routers import budget, categories, imports, transactions
+
 app = FastAPI(title="bud API")
 
 # Dev CORS: allow the Vite dev server to call the API during local development.
@@ -31,9 +33,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# Phase 1 (bead bud-ayl): real routers land here, e.g.
-#   app.include_router(budget.router, prefix="/api")
-#   app.include_router(imports.router, prefix="/api")
+# Phase 1 API routers, all mounted under /api.
+app.include_router(budget.router, prefix="/api")
+app.include_router(categories.router, prefix="/api")
+app.include_router(transactions.router, prefix="/api")
+app.include_router(imports.router, prefix="/api")
 
 # Placeholder SPA mount. After the Phase 5 frontend build produces
 # ``frontend/dist``, this serves the compiled single-page app. It is mounted
