@@ -8,7 +8,6 @@ create/list/apply/delete lifecycle plus 404s.
 
 from __future__ import annotations
 
-import importlib
 import os
 import tempfile
 from pathlib import Path
@@ -25,15 +24,15 @@ def setup():
     db_path = Path(tmp.name)
     os.environ["BUD_DB_PATH"] = str(db_path)
 
-    # Import (and reload) deps/router AFTER setting the env var, and clear the
+    # Import deps/router AFTER setting the env var, and clear the
     # lru_cache-backed singletons so they re-create against the temp DB.
+    # (No importlib.reload: reloading swaps module identity in sys.modules,
+    # which desyncs routers' Depends() from the providers other tests clear.)
     from backend import deps
-    importlib.reload(deps)
     deps.get_db.cache_clear()
     deps.get_budget_id.cache_clear()
 
     from backend.routers import rules
-    importlib.reload(rules)
 
     app = FastAPI()
     app.include_router(rules.router, prefix="/api")

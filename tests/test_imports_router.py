@@ -17,7 +17,6 @@ Flow exercised:
 
 from __future__ import annotations
 
-import importlib
 import os
 import tempfile
 from pathlib import Path
@@ -76,13 +75,13 @@ def client_and_db():
     db_path = Path(tmp.name)
     os.environ["BUD_DB_PATH"] = str(db_path)
 
+    # No importlib.reload: reloading swaps module identity in sys.modules,
+    # which desyncs routers' Depends() from the providers other tests clear.
     from backend import deps
-    importlib.reload(deps)
     deps.get_db.cache_clear()
     deps.get_budget_id.cache_clear()
 
     from backend.routers import imports
-    importlib.reload(imports)
 
     app = FastAPI()
     app.include_router(imports.router, prefix="/api")

@@ -9,7 +9,6 @@ have something to report.
 
 from __future__ import annotations
 
-import importlib
 import os
 import tempfile
 import uuid
@@ -28,14 +27,13 @@ def ctx():
     db_path = Path(tmp.name)
     os.environ["BUD_DB_PATH"] = str(db_path)
 
+    # No importlib.reload: reloading swaps module identity in sys.modules,
+    # which desyncs routers' Depends() from the providers other tests clear.
     from backend import deps
-    importlib.reload(deps)
     deps.get_db.cache_clear()
     deps.get_budget_id.cache_clear()
 
     from backend.routers import accounts, alerts, insights, settings
-    for mod in (accounts, alerts, insights, settings):
-        importlib.reload(mod)
 
     app = FastAPI()
     app.include_router(accounts.router, prefix="/api")
