@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test'
  * server from the repo root. Playwright waits on `/api/health` before
  * running the specs.
  */
-const PORT = 8000
+const PORT = process.env.PORT ?? '8000'
 const BASE_URL = `http://127.0.0.1:${PORT}`
 
 export default defineConfig({
@@ -33,8 +33,7 @@ export default defineConfig({
   webServer: {
     // Build the SPA, then run the real single-process server from the repo
     // root (one level up from this `frontend/` cwd).
-    command:
-      'npm run build && cd .. && uv run python -m uvicorn backend.main:app --port 8000',
+    command: `npm run build && cd .. && uv run python -m uvicorn backend.main:app --port ${PORT}`,
     url: `${BASE_URL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

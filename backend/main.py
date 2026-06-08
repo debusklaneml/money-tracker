@@ -65,8 +65,11 @@ app.include_router(settings.router, prefix="/api")
 #   2. A catch-all returns ``index.html`` for every other path so client-side
 #      (BrowserRouter) deep links like ``/transactions`` survive a hard refresh.
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-if _FRONTEND_DIST.is_dir():
-    _INDEX_HTML = _FRONTEND_DIST / "index.html"
+_INDEX_HTML = _FRONTEND_DIST / "index.html"
+# Require index.html, not just the directory: a partial/corrupt build (dir
+# present but no index.html) would otherwise 500 on every page load via the
+# catch-all. Treat that as "no SPA built" and no-op instead.
+if _INDEX_HTML.is_file():
     _ASSETS_DIR = _FRONTEND_DIST / "assets"
     if _ASSETS_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
