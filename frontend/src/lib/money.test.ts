@@ -5,6 +5,7 @@ import {
   fromDisplay,
   formatMoney,
   parseMoneyInput,
+  toInputString,
 } from './money'
 
 describe('MILLIUNITS_PER_UNIT', () => {
@@ -99,5 +100,35 @@ describe('parseMoneyInput', () => {
 
   it('round-trips through fromDisplay rounding', () => {
     expect(parseMoneyInput('1.2345')).toBe(1235)
+  })
+})
+
+describe('toInputString', () => {
+  it('renders a plain two-decimal numeric string with no currency symbol', () => {
+    expect(toInputString(100000)).toBe('100.00')
+    expect(toInputString(12350)).toBe('12.35')
+    expect(toInputString(0)).toBe('0.00')
+    expect(toInputString(-2500)).toBe('-2.50')
+  })
+
+  it('round-trips exactly through parseMoneyInput for cent-aligned values', () => {
+    // The value a user sees when they click to edit must commit back unchanged.
+    for (const mu of [100000, 12350, 0, 999990, -2500]) {
+      expect(parseMoneyInput(toInputString(mu))).toBe(mu)
+    }
+  })
+})
+
+describe('formatMoney withCents option', () => {
+  it('omits decimals and rounds to whole dollars when withCents is false', () => {
+    expect(formatMoney(123456, { withCents: false })).toBe('$123')
+    expect(formatMoney(123900, { withCents: false })).toBe('$124') // rounds
+    expect(formatMoney(-2500, { withCents: false })).toBe('-$3') // rounds away
+  })
+
+  it('shows two decimals by default and when withCents is true', () => {
+    // 1_234_560 milliunits == $1,234.56.
+    expect(formatMoney(1_234_560)).toBe('$1,234.56')
+    expect(formatMoney(1_234_560, { withCents: true })).toBe('$1,234.56')
   })
 })

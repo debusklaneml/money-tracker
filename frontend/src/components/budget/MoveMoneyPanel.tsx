@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { useBudget, useMove } from '../../lib/queries'
-import { formatMoney, parseMoneyInput } from '../../lib/money'
+import { formatMoney, parseMoneyInput, toInputString } from '../../lib/money'
 import type { CategoryState } from '../../lib/types'
 
 interface MoveMoneyPanelProps {
@@ -88,7 +88,7 @@ export default function MoveMoneyPanel({
 
   const handleCover = () => {
     if (shortfall > 0) {
-      setAmountText(String(shortfall / 1000))
+      setAmountText(toInputString(shortfall))
     }
   }
 

@@ -128,6 +128,38 @@ describe('useAssign optimistic cache update', () => {
     client.clear();
   });
 
+  it('writes to the explicit-month cache key when month is provided', async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    // A budget cached under an explicit month, distinct from the 'current' key.
+    client.setQueryData(queryKeys.budget('2026-06-01'), seedState());
+
+    vi.spyOn(api, 'assign').mockReturnValue(new Promise<BudgetState>(() => {}));
+
+    const { result } = renderHook(() => useAssign(), {
+      wrapper: wrapper(client),
+    });
+
+    result.current.mutate({
+      category_id: 'cat-a',
+      amount: 150_000,
+      month: '2026-06-01',
+    });
+
+    await waitFor(() => {
+      const cached = client.getQueryData<BudgetState>(
+        queryKeys.budget('2026-06-01'),
+      );
+      expect(cached?.ready_to_assign).toBe(150_000);
+    });
+
+    // The 'current' (undefined-month) key must be untouched.
+    expect(client.getQueryData(queryKeys.budget(undefined))).toBeUndefined();
+
+    client.clear();
+  });
+
   it('rolls back to the previous state when the server errors', async () => {
     const client = new QueryClient({
       defaultOptions: { mutations: { retry: false } },

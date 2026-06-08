@@ -103,6 +103,24 @@ describe('EnvelopeGrid', () => {
     })
   })
 
+  it('cancels the edit on Escape without calling mutate and reverts the value', async () => {
+    const user = userEvent.setup()
+    render(<EnvelopeGrid month="2026-06-01" />)
+
+    await user.click(screen.getByRole('button', { name: 'Assigned for Rent' }))
+    const input = screen.getByRole('textbox', { name: 'Assigned for Rent' })
+    await user.clear(input)
+    await user.type(input, '999')
+    await user.keyboard('{Escape}')
+
+    // Escape unmounts the input, which fires a trailing blur — neither path
+    // may commit the typed value.
+    expect(mutate).not.toHaveBeenCalled()
+    // The cell reverts to a button showing the original assigned amount.
+    const cell = await screen.findByRole('button', { name: 'Assigned for Rent' })
+    expect(cell).toHaveTextContent('$100.00')
+  })
+
   it('does not call mutate when the input is invalid', async () => {
     const user = userEvent.setup()
     render(<EnvelopeGrid month="2026-06-01" />)

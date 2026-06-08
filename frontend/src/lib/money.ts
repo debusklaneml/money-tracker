@@ -41,30 +41,51 @@ export function fromDisplay(units: number): number {
   return sign * Math.round(Math.abs(scaled))
 }
 
-/** Base formatter: USD currency, always two fraction digits. */
+/** Base formatter: USD currency with two fraction digits ("$1,234.56"). */
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
 })
 
+/** Whole-dollar formatter: no fraction digits ("$1,235"), for withCents: false. */
+const wholeDollarFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+})
+
+/**
+ * Render milliunits as a plain numeric string (no currency symbol or grouping)
+ * suitable for seeding a text <input> when editing money, e.g. 100000 -> "100.00",
+ * -2500 -> "-2.50". Always two decimals so the edit value matches what was
+ * displayed and never exposes sub-cent milliunit precision. The result
+ * round-trips exactly through parseMoneyInput for cent-aligned values.
+ */
+export function toInputString(milliunits: number): string {
+  return (milliunits / MILLIUNITS_PER_UNIT).toFixed(2)
+}
+
 /**
  * Format milliunits as a localized currency string.
  *
- * - opts.withCents (default true): show two decimal places ("$1,234.56").
- *   Kept simple — the default formatter always shows 2 decimals.
+ * - opts.withCents (default true): when false, round to whole dollars and omit
+ *   the decimals ("$1,235"); the default shows two decimals ("$1,234.56").
  * - opts.showPlus (default false): prefix positive, non-zero values with "+".
  *
- * Negatives render as "-$1,234.56". Zero renders "$0.00".
+ * Negatives render with a leading "-". Zero renders "$0.00" (or "$0").
  */
 export function formatMoney(
   milliunits: number,
   opts?: { withCents?: boolean; showPlus?: boolean },
 ): string {
+  const withCents = opts?.withCents ?? true
   const showPlus = opts?.showPlus ?? false
 
   const units = toDisplay(milliunits)
   // Intl already renders the "-" sign for negative values.
-  const formatted = currencyFormatter.format(units)
+  const formatted = (withCents ? currencyFormatter : wholeDollarFormatter).format(
+    units,
+  )
 
   if (showPlus && milliunits > 0) {
     return `+${formatted}`

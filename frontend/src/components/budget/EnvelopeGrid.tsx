@@ -5,7 +5,7 @@
 // (plus an Assigned subtotal) preceding each group's category rows. Editing
 // the Assigned cell commits an assignment through the API via useAssign().
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
   flexRender,
@@ -15,7 +15,7 @@ import {
 } from '@tanstack/react-table'
 
 import { useAssign, useBudget } from '../../lib/queries'
-import { formatMoney, parseMoneyInput, toDisplay } from '../../lib/money'
+import { formatMoney, parseMoneyInput, toInputString } from '../../lib/money'
 import type { CategoryState } from '../../lib/types'
 
 interface EnvelopeGridProps {
@@ -42,32 +42,41 @@ function AssignedCell({
   const assign = useAssign()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  // Guards against a single edit session being finalized twice: pressing Enter
+  // (or Escape) sets editing=false, which unmounts the input and fires its
+  // onBlur — without this flag that trailing blur would re-run commit.
+  const finishedRef = useRef(false)
 
   // Seed the input with a plain numeric display (no "$"), e.g. "100.00".
   const startEditing = () => {
-    setDraft(String(toDisplay(category.assigned)))
+    finishedRef.current = false
+    setDraft(toInputString(category.assigned))
     setEditing(true)
   }
 
-  const cancel = () => {
-    setEditing(false)
-    setDraft('')
-  }
-
-  const commit = () => {
-    const parsed = parseMoneyInput(draft)
-    // Invalid input → revert silently, no API call.
-    // Unchanged value → no API call.
-    if (parsed !== null && parsed !== category.assigned) {
-      assign.mutate({
-        category_id: category.id,
-        amount: parsed,
-        month: month ?? null,
-      })
+  // Finalize the edit session exactly once. `apply` distinguishes commit
+  // (Enter/blur) from cancel (Escape).
+  const finish = (apply: boolean) => {
+    if (finishedRef.current) return
+    finishedRef.current = true
+    if (apply) {
+      const parsed = parseMoneyInput(draft)
+      // Invalid input → revert silently, no API call.
+      // Unchanged value → no API call.
+      if (parsed !== null && parsed !== category.assigned) {
+        assign.mutate({
+          category_id: category.id,
+          amount: parsed,
+          month: month ?? null,
+        })
+      }
     }
     setEditing(false)
     setDraft('')
   }
+
+  const commit = () => finish(true)
+  const cancel = () => finish(false)
 
   if (editing) {
     return (

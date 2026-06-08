@@ -235,13 +235,17 @@ export const api = {
     request<ImportBatch[]>('/api/imports/history'),
 
   // --- Insights -----------------------------------------------------------
-  getSpendingByCategory: (month?: string): Promise<SpendingByCategory[]> =>
+  // Both endpoints take `months` — a trailing-window size in months (ints),
+  // NOT a YYYY-MM-01 month string (see backend/routers/insights.py).
+  getSpendingByCategory: (months?: number): Promise<SpendingByCategory[]> =>
     request<SpendingByCategory[]>(
-      `/api/insights/spending-by-category${buildQuery({ month })}`,
+      `/api/insights/spending-by-category${buildQuery({ months })}`,
     ),
 
-  getMonthlyTrend: (): Promise<MonthlyTrendPoint[]> =>
-    request<MonthlyTrendPoint[]>('/api/insights/monthly-trend'),
+  getMonthlyTrend: (months?: number): Promise<MonthlyTrendPoint[]> =>
+    request<MonthlyTrendPoint[]>(
+      `/api/insights/monthly-trend${buildQuery({ months })}`,
+    ),
 
   // --- Settings -----------------------------------------------------------
   getSettingsSummary: (): Promise<SettingsSummary> =>
