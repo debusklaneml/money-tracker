@@ -5,6 +5,7 @@ import TransactionsPage from './routes/TransactionsPage'
 import ImportPage from './routes/ImportPage'
 import CategoriesPage from './routes/CategoriesPage'
 import DashboardPage from './routes/DashboardPage'
+import SpendingPage from './routes/SpendingPage'
 import AlertsPage from './routes/AlertsPage'
 import RulesPage from './routes/RulesPage'
 import SettingsPage from './routes/SettingsPage'
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="import" element={<ImportPage />} />
         <Route path="categories" element={<CategoriesPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="spending" element={<SpendingPage />} />
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="rules" element={<RulesPage />} />
         <Route path="settings" element={<SettingsPage />} />

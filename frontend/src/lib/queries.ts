@@ -25,6 +25,11 @@ export const queryKeys = {
   rules: () => ['rules'] as const,
   alerts: () => ['alerts'] as const,
   importHistory: () => ['imports', 'history'] as const,
+  spendingByCategory: (months?: number) =>
+    ['insights', 'spending', months ?? 'default'] as const,
+  monthlyTrend: (months?: number) =>
+    ['insights', 'trend', months ?? 'default'] as const,
+  settingsSummary: () => ['settings', 'summary'] as const,
 } as const;
 
 // --- Queries --------------------------------------------------------------
@@ -50,10 +55,16 @@ export function useAccounts() {
   });
 }
 
-export function useTransactions(params?: TransactionQueryParams) {
+export function useTransactions(
+  params?: TransactionQueryParams,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: queryKeys.transactions(params),
     queryFn: () => api.getTransactions(params),
+    // Defaults to enabled; callers can gate the fetch (e.g. wait for a
+    // selection) without firing an unfiltered fetch-all on mount.
+    enabled: options?.enabled,
   });
 }
 
@@ -82,6 +93,27 @@ export function useImportHistory() {
   return useQuery({
     queryKey: queryKeys.importHistory(),
     queryFn: () => api.getImportHistory(),
+  });
+}
+
+export function useSpendingByCategory(months?: number) {
+  return useQuery({
+    queryKey: queryKeys.spendingByCategory(months),
+    queryFn: () => api.getSpendingByCategory(months),
+  });
+}
+
+export function useMonthlyTrend(months?: number) {
+  return useQuery({
+    queryKey: queryKeys.monthlyTrend(months),
+    queryFn: () => api.getMonthlyTrend(months),
+  });
+}
+
+export function useSettingsSummary() {
+  return useQuery({
+    queryKey: queryKeys.settingsSummary(),
+    queryFn: () => api.getSettingsSummary(),
   });
 }
 
@@ -305,6 +337,40 @@ export function useApplyRule() {
       // prefix also covers the uncategorized-count key.
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+// --- Alert mutations -------------------------------------------------------
+
+export function useRunAlerts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.runAlerts(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.alerts() });
+      qc.invalidateQueries({ queryKey: queryKeys.settingsSummary() });
+    },
+  });
+}
+
+export function useDismissAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.dismissAlert(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.alerts() });
+      qc.invalidateQueries({ queryKey: queryKeys.settingsSummary() });
+    },
+  });
+}
+
+export function useAcknowledgeAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.acknowledgeAlert(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.alerts() });
     },
   });
 }
