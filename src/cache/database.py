@@ -868,6 +868,34 @@ class Database:
                 (budget_id, limit),
             ).fetchall()
 
+    def delete_import_batch(self, budget_id: str, batch_id: int) -> Optional[int]:
+        """Delete an import batch and cascade-delete its transactions, atomically.
+
+        Returns the number of transactions removed, or ``None`` if no batch with
+        that id exists for the budget (so the caller can surface a 404). Both
+        deletes share one connection/transaction: either everything is removed
+        or nothing is. Once the batch row is gone its file_hash is no longer in
+        ``import_batches``, so :meth:`file_hash_imported` reports the file as
+        importable again and re-importing the same file works.
+        """
+        with self._get_connection() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM import_batches WHERE budget_id = ? AND id = ?",
+                (budget_id, batch_id),
+            ).fetchone()
+            if exists is None:
+                return None
+            cur = conn.execute(
+                "DELETE FROM transactions WHERE budget_id = ? AND import_batch_id = ?",
+                (budget_id, batch_id),
+            )
+            deleted = cur.rowcount
+            conn.execute(
+                "DELETE FROM import_batches WHERE budget_id = ? AND id = ?",
+                (budget_id, batch_id),
+            )
+            return deleted
+
     # ------------------------------------------------------------------
     # Transaction categorization
     # ------------------------------------------------------------------

@@ -184,6 +184,61 @@ def test_commit_then_history(client_and_db):
     assert len(limited.json()) == 1
 
 
+def test_delete_removes_batch_and_transactions(client_and_db):
+    client, db, budget_id = client_and_db
+
+    # Commit an import, then locate its batch.
+    resp = _upload(client, "/api/imports")
+    assert resp.status_code == 200, resp.text
+    assert _count_transactions(db, budget_id) == 2
+
+    batches = client.get("/api/imports/history").json()
+    assert len(batches) == 1
+    batch_id = batches[0]["id"]
+
+    # Delete it: reports how many transactions were cascade-removed.
+    resp = client.delete(f"/api/imports/{batch_id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == batch_id
+    assert body["deleted_transactions"] == 2
+
+    # Both the batch and its transactions are gone.
+    assert _count_transactions(db, budget_id) == 0
+    assert client.get("/api/imports/history").json() == []
+
+
+def test_delete_missing_batch_is_404(client_and_db):
+    client, _, _ = client_and_db
+    resp = client.delete("/api/imports/9999")
+    assert resp.status_code == 404
+
+
+def test_reimport_after_delete_succeeds(client_and_db):
+    client, db, budget_id = client_and_db
+
+    # Import, then delete the batch.
+    _upload(client, "/api/imports")
+    batch_id = client.get("/api/imports/history").json()[0]["id"]
+    assert client.delete(f"/api/imports/{batch_id}").status_code == 200
+
+    # After deletion, a preview treats the file as brand new (its hash is no
+    # longer recorded and its FITIDs were removed with the transactions).
+    prev = _upload(client, "/api/imports/preview").json()
+    assert prev["already_imported_file"] is False
+    assert prev["duplicate_count"] == 0
+    assert len(prev["new_transactions"]) == 2
+
+    # Re-importing the SAME file must now work as a fresh import.
+    resp = _upload(client, "/api/imports")
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    assert result["imported"] == 2
+    assert result["duplicates"] == 0
+    assert result["already_imported_file"] is False
+    assert _count_transactions(db, budget_id) == 2
+
+
 def test_empty_file_is_400(client_and_db):
     client, _, _ = client_and_db
     resp = _upload(client, "/api/imports/preview", content=b"")

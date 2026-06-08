@@ -146,6 +146,11 @@ export interface ImportBatch {
   date_max: string | null;
 }
 
+export interface ImportDeleteResult {
+  id: number;
+  deleted_transactions: number;
+}
+
 // --- Insights -------------------------------------------------------------
 // Field names mirror backend/routers/insights.py exactly.
 

@@ -14,17 +14,20 @@ vi.mock('../../lib/queries', () => ({
   usePreviewImport: vi.fn(),
   useCommitImport: vi.fn(),
   useImportHistory: vi.fn(),
+  useDeleteImport: vi.fn(),
 }))
 
 import {
   usePreviewImport,
   useCommitImport,
   useImportHistory,
+  useDeleteImport,
 } from '../../lib/queries'
 
 const mockedPreview = vi.mocked(usePreviewImport)
 const mockedCommit = vi.mocked(useCommitImport)
 const mockedHistory = vi.mocked(useImportHistory)
+const mockedDeleteImport = vi.mocked(useDeleteImport)
 
 function makeTxn(over: Partial<Transaction> = {}): Transaction {
   return {
@@ -92,6 +95,7 @@ let previewMutateAsync: ReturnType<typeof vi.fn>
 let previewReset: ReturnType<typeof vi.fn>
 let commitMutateAsync: ReturnType<typeof vi.fn>
 let commitReset: ReturnType<typeof vi.fn>
+let deleteImportMutateAsync: ReturnType<typeof vi.fn>
 
 interface PreviewOverrides {
   data?: ImportPreview
@@ -113,16 +117,26 @@ interface HistoryOverrides {
   isError?: boolean
 }
 
+interface DeleteImportOverrides {
+  isPending?: boolean
+  isError?: boolean
+  variables?: number
+}
+
 function setup(opts: {
   preview?: PreviewOverrides
   commit?: CommitOverrides
   history?: HistoryOverrides
+  deleteImport?: DeleteImportOverrides
 } = {}) {
   previewMutate = vi.fn()
   previewMutateAsync = vi.fn().mockResolvedValue(samplePreview)
   previewReset = vi.fn()
   commitMutateAsync = vi.fn().mockResolvedValue(sampleResult)
   commitReset = vi.fn()
+  deleteImportMutateAsync = vi
+    .fn()
+    .mockResolvedValue({ id: 1, deleted_transactions: 42 })
 
   mockedPreview.mockReturnValue({
     mutate: previewMutate,
@@ -149,6 +163,15 @@ function setup(opts: {
     isLoading: opts.history?.isLoading ?? false,
     isError: opts.history?.isError ?? false,
   } as unknown as ReturnType<typeof useImportHistory>)
+
+  mockedDeleteImport.mockReturnValue({
+    mutate: vi.fn(),
+    mutateAsync: deleteImportMutateAsync,
+    reset: vi.fn(),
+    isPending: opts.deleteImport?.isPending ?? false,
+    isError: opts.deleteImport?.isError ?? false,
+    variables: opts.deleteImport?.variables,
+  } as unknown as ReturnType<typeof useDeleteImport>)
 }
 
 beforeEach(() => {
@@ -321,6 +344,50 @@ describe('ImportHistory states', () => {
     render(<ImportPage />)
     expect(
       screen.getByText(/Failed to load import history/i),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('ImportHistory delete', () => {
+  it('requires a confirmation before deleting, then calls the mutation with the batch id', async () => {
+    setup()
+    render(<ImportPage />)
+
+    // First click only reveals the confirm affordance — no mutation yet.
+    await userEvent.click(
+      screen.getByRole('button', { name: /Delete march\.ofx/i }),
+    )
+    expect(deleteImportMutateAsync).not.toHaveBeenCalled()
+    expect(screen.getByText(/Delete 42 txns\?/i)).toBeInTheDocument()
+
+    // Confirm fires the delete with the batch id.
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() =>
+      expect(deleteImportMutateAsync).toHaveBeenCalledWith(1),
+    )
+  })
+
+  it('cancel dismisses the confirmation without deleting', async () => {
+    setup()
+    render(<ImportPage />)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Delete march\.ofx/i }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(deleteImportMutateAsync).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Delete 42 txns\?/i)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Delete march\.ofx/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces an error banner when the delete fails', () => {
+    setup({ deleteImport: { isError: true } })
+    render(<ImportPage />)
+    expect(
+      screen.getByText(/Failed to delete the upload/i),
     ).toBeInTheDocument()
   })
 })

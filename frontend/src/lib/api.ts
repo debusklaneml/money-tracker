@@ -14,6 +14,7 @@ import type {
   CategoryCreateRequest,
   CategoryUpdateRequest,
   ImportBatch,
+  ImportDeleteResult,
   ImportPreview,
   ImportResult,
   MessageResponse,
@@ -233,6 +234,9 @@ export const api = {
 
   getImportHistory: (): Promise<ImportBatch[]> =>
     request<ImportBatch[]>('/api/imports/history'),
+
+  deleteImport: (id: number): Promise<ImportDeleteResult> =>
+    request<ImportDeleteResult>(`/api/imports/${id}`, { method: 'DELETE' }),
 
   // --- Insights -----------------------------------------------------------
   // Both endpoints take `months` — a trailing-window size in months (ints),

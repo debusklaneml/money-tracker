@@ -322,6 +322,15 @@ class ImportBatch(BaseModel):
     date_max: Optional[str] = Field(None, description="Latest transaction date (ISO).")
 
 
+class ImportDeleteResult(BaseModel):
+    """Result of deleting an import batch and its cascade-deleted transactions."""
+
+    id: int = Field(..., description="Deleted batch id.")
+    deleted_transactions: int = Field(
+        0, description="Count of transactions removed along with the batch."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Alerts (mirror src.alerts)
 # ---------------------------------------------------------------------------

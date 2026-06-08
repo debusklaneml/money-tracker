@@ -10,6 +10,8 @@ Three endpoints back the import workflow:
   :meth:`ImportService.import_file`, which parses, dedupes (by bank FITID and by
   file content hash) and inserts in one call.
 * ``GET /imports/history`` lists recorded import batches, newest first.
+* ``DELETE /imports/{batch_id}`` deletes a recorded import batch and
+  cascade-deletes the transactions it inserted (so the file can be re-imported).
 
 Money convention: amounts are signed milliunits (negative = outflow), matching
 the rest of the API. The OFX parser yields ``Decimal`` dollars, so preview
@@ -34,7 +36,7 @@ from __future__ import annotations
 
 import hashlib
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile, status
 
 from backend import schemas
 from backend.deps import get_budget_id, get_db, get_import_service
@@ -173,3 +175,24 @@ def import_history(
     """List recorded import batches, newest first."""
     rows = db.get_import_batches(budget_id, limit=limit)
     return [schemas.ImportBatch(**dict(row)) for row in rows]
+
+
+@router.delete("/imports/{batch_id}", response_model=schemas.ImportDeleteResult)
+def delete_import(
+    batch_id: int = Path(..., ge=1, description="Import batch id to delete."),
+    db: Database = Depends(get_db),
+    budget_id: str = Depends(get_budget_id),
+) -> schemas.ImportDeleteResult:
+    """Delete an import batch and cascade-delete its imported transactions.
+
+    Removing the batch also drops its file_hash from ``import_batches``, so the
+    same file can be imported again afterwards. Returns 404 if no such batch
+    exists for this budget.
+    """
+    deleted = db.delete_import_batch(budget_id, batch_id)
+    if deleted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Import batch {batch_id} not found.",
+        )
+    return schemas.ImportDeleteResult(id=batch_id, deleted_transactions=deleted)

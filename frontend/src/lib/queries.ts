@@ -305,6 +305,21 @@ export function useCommitImport() {
   });
 }
 
+export function useDeleteImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteImport(id),
+    onSuccess: () => {
+      // Deleting an upload removes its transactions, which shifts the budget
+      // and uncategorized count, and updates import history.
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: queryKeys.uncategorizedCount() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+      qc.invalidateQueries({ queryKey: queryKeys.importHistory() });
+    },
+  });
+}
+
 // --- Rule mutations --------------------------------------------------------
 
 export function useCreateRule() {
