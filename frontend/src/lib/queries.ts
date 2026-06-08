@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type {
   AssignRequest,
+  BudgetState,
   BulkCategorizeRequest,
   MoveRequest,
   TransactionCategorizeRequest,
@@ -73,14 +74,80 @@ export function useAlerts() {
   });
 }
 
+// --- Optimistic helpers ---------------------------------------------------
+
+/**
+ * Pure transform: given a {@link BudgetState} and the new `assigned` amount for
+ * a single category, return a NEW BudgetState reflecting that assignment.
+ *
+ * All money values are integer milliunits. The accounting is:
+ *   delta = newAmount - oldAssigned
+ *   category.assigned  := newAmount
+ *   category.available += delta   (assigning more puts more in the envelope)
+ *   ready_to_assign    -= delta   (assigning reduces money left to assign)
+ *   assigned_total     += delta
+ *
+ * If the category id isn't present, the state is returned unchanged. The input
+ * is never mutated — the categories array and the touched category object are
+ * cloned.
+ */
+export function applyOptimisticAssign(
+  state: BudgetState,
+  categoryId: string,
+  newAmount: number,
+): BudgetState {
+  const index = state.categories.findIndex((c) => c.id === categoryId);
+  if (index === -1) return state;
+
+  const target = state.categories[index];
+  const delta = newAmount - target.assigned;
+
+  const categories = state.categories.slice();
+  categories[index] = {
+    ...target,
+    assigned: newAmount,
+    available: target.available + delta,
+  };
+
+  return {
+    ...state,
+    ready_to_assign: state.ready_to_assign - delta,
+    assigned_total: state.assigned_total + delta,
+    categories,
+  };
+}
+
 // --- Mutations ------------------------------------------------------------
 
 export function useAssign() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: AssignRequest) => api.assign(body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget'] });
+    onMutate: async (body: AssignRequest) => {
+      // Key exactly the way useBudget does: month ?? 'current'.
+      const key = queryKeys.budget(body.month ?? undefined);
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<BudgetState>(key);
+      if (previous) {
+        qc.setQueryData<BudgetState>(
+          key,
+          applyOptimisticAssign(previous, body.category_id, body.amount),
+        );
+      }
+      return { previous, key };
+    },
+    onError: (_err, _body, context) => {
+      if (context?.previous !== undefined) {
+        qc.setQueryData(context.key, context.previous);
+      }
+    },
+    onSettled: (_data, _err, _body, context) => {
+      // Reconcile with the server's authoritative numbers.
+      if (context?.key) {
+        qc.invalidateQueries({ queryKey: context.key });
+      } else {
+        qc.invalidateQueries({ queryKey: ['budget'] });
+      }
     },
   });
 }
