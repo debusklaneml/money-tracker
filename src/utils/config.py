@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import streamlit as st
-
 
 @dataclass
 class AlertThresholds:
@@ -19,18 +17,13 @@ class AlertThresholds:
 
 
 def load_alert_thresholds() -> AlertThresholds:
-    """Load alert thresholds from Streamlit secrets, falling back to defaults."""
-    try:
-        section = st.secrets.get("alert_thresholds", {})
-    except Exception:
-        section = {}
-    return AlertThresholds(
-        unusual_spending_warning=float(section.get("unusual_spending_warning", 2.5)),
-        unusual_spending_critical=float(section.get("unusual_spending_critical", 3.5)),
-        budget_approaching=float(section.get("budget_approaching", 0.90)),
-        recurring_days_warning=int(section.get("recurring_days_warning", 3)),
-        recurring_days_critical=int(section.get("recurring_days_critical", 7)),
-    )
+    """Return default alert thresholds.
+
+    Previously these were sourced from Streamlit secrets; with the Streamlit UI
+    removed, defaults are used. Configurable thresholds can be reintroduced via
+    the FastAPI backend if needed.
+    """
+    return AlertThresholds()
 
 
 def get_db_path() -> Path:
