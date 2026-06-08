@@ -23,6 +23,7 @@ SQLite file on disk) is only touched when ``get_db`` is first called.
 from __future__ import annotations
 
 import os
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -34,6 +35,15 @@ from src.imports.service import ImportService
 # Database falls back to its own default of ``~/.bud/cache.db``.
 _DB_PATH_ENV = "BUD_DB_PATH"
 
+# Serializes the first Database construction. ``lru_cache`` caches the *result*
+# but does not prevent two threads that both miss the cache from running the
+# body concurrently — and ``Database.__init__`` switches the SQLite file into
+# WAL mode, a one-time exclusive operation that does NOT honour the busy-timeout
+# and raises "database is locked" if two connections attempt it at once. Holding
+# this lock means that first WAL switch happens single-threaded; afterwards the
+# pragma is a no-op for every connection. See bud-3f3.
+_db_lock = threading.Lock()
+
 
 @lru_cache(maxsize=1)
 def get_db() -> Database:
@@ -42,10 +52,14 @@ def get_db() -> Database:
     Lazily created on first call and cached for the process lifetime, so every
     ``Depends(get_db)`` reuses the same instance. Honours the ``BUD_DB_PATH``
     environment variable when set, otherwise uses the Database default.
+
+    Construction is guarded by ``_db_lock`` so a concurrent first-request burst
+    (FastAPI's threadpool) cannot run two ``Database.__init__`` calls at once.
     """
-    db_path_env = os.environ.get(_DB_PATH_ENV)
-    db_path = Path(db_path_env) if db_path_env else None
-    return Database(db_path)
+    with _db_lock:
+        db_path_env = os.environ.get(_DB_PATH_ENV)
+        db_path = Path(db_path_env) if db_path_env else None
+        return Database(db_path)
 
 
 @lru_cache(maxsize=1)
