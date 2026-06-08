@@ -7,6 +7,8 @@ import type {
   AssignRequest,
   BudgetState,
   BulkCategorizeRequest,
+  CategoryCreateRequest,
+  CategoryUpdateRequest,
   MoveRequest,
   TransactionCategorizeRequest,
   TransactionQueryParams,
@@ -21,6 +23,7 @@ export const queryKeys = {
     ['transactions', 'uncategorized', 'count'] as const,
   rules: () => ['rules'] as const,
   alerts: () => ['alerts'] as const,
+  importHistory: () => ['imports', 'history'] as const,
 } as const;
 
 // --- Queries --------------------------------------------------------------
@@ -71,6 +74,13 @@ export function useAlerts() {
   return useQuery({
     queryKey: queryKeys.alerts(),
     queryFn: () => api.getAlerts(),
+  });
+}
+
+export function useImportHistory() {
+  return useQuery({
+    queryKey: queryKeys.importHistory(),
+    queryFn: () => api.getImportHistory(),
   });
 }
 
@@ -188,6 +198,76 @@ export function useBulkCategorize() {
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: queryKeys.uncategorizedCount() });
       qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+// --- Category management mutations ----------------------------------------
+
+export function useCreateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CategoryCreateRequest) => api.createCategory(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+export function useUpdateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: CategoryUpdateRequest }) =>
+      api.updateCategory(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+export function useSetCategoryHidden() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: string; hidden: boolean }) =>
+      api.setCategoryHidden(id, hidden),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+export function useDeleteCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCategory(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+// --- Import mutations ------------------------------------------------------
+
+export function usePreviewImport() {
+  return useMutation({
+    mutationFn: (file: File) => api.previewImport(file),
+  });
+}
+
+export function useCommitImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.commitImport(file),
+    onSuccess: () => {
+      // A commit changes transactions, the budget, and import history.
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: queryKeys.uncategorizedCount() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+      qc.invalidateQueries({ queryKey: queryKeys.importHistory() });
     },
   });
 }
