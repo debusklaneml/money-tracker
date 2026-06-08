@@ -95,6 +95,7 @@ export default function CategoriesPage() {
 
       {editing && (
         <CategoryForm
+          key={editing.id}
           mode="edit"
           initial={{
             name: editing.name,

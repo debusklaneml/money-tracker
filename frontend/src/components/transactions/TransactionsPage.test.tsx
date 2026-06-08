@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import TransactionsPage from '../../routes/TransactionsPage'
@@ -229,6 +229,80 @@ describe('TransactionsPage', () => {
         screen.getByRole('checkbox', { name: `Select transaction ${id}` }),
       ).toBeChecked()
     }
+  })
+
+  it('debounces search before changing the query params', () => {
+    vi.useFakeTimers()
+    try {
+      render(<TransactionsPage />)
+      const input = screen.getByRole('searchbox', {
+        name: 'Search transactions',
+      })
+
+      fireEvent.change(input, { target: { value: 'coff' } })
+
+      // Before the 250ms debounce elapses, params must NOT include the search.
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(
+        mockedUseTransactions.mock.calls[
+          mockedUseTransactions.mock.calls.length - 1
+        ][0],
+      ).toEqual({})
+
+      // After the debounce window, the search propagates into the params.
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
+      expect(
+        mockedUseTransactions.mock.calls[
+          mockedUseTransactions.mock.calls.length - 1
+        ][0],
+      ).toEqual({ search: 'coff' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('prunes the selection when a selected row leaves the result set', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<TransactionsPage />)
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select transaction t1' }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select transaction t3' }),
+    )
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+
+    // t3 disappears (e.g. a refetch after a filter/mutation returns fewer rows).
+    mockedUseTransactions.mockReturnValue({
+      data: [sampleTransactions[0], sampleTransactions[1]], // t1, t2 only
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useTransactions>)
+    rerender(<TransactionsPage />)
+
+    // The ghost t3 is pruned; only t1 remains selected.
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+  })
+
+  it('resetting a row category to "—" categorizes it as null', async () => {
+    const user = userEvent.setup()
+    render(<TransactionsPage />)
+
+    // t2 is currently categorized (Income); reset it to the blank option.
+    const rowSelect = screen.getByRole('combobox', {
+      name: 'Category for transaction t2',
+    })
+    await user.selectOptions(rowSelect, '')
+
+    expect(rowMutate).toHaveBeenCalledWith({
+      id: 't2',
+      body: { category_id: null, category_name: null },
+    })
   })
 
   it('a per-row category change calls useCategorizeTransaction with id + body', async () => {

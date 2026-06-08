@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import ImportPage from '../../routes/ImportPage'
@@ -259,6 +259,47 @@ describe('ImportPage', () => {
     render(<ImportPage />)
 
     expect(screen.getByText(/Import failed: server exploded/)).toBeInTheDocument()
+  })
+
+  it('retains the file and preview for retry when the commit rejects', async () => {
+    setup({ preview: { data: samplePreview } })
+    commitMutateAsync.mockRejectedValueOnce(new Error('boom'))
+    render(<ImportPage />)
+
+    const input = screen.getByLabelText(
+      'OFX or QFX file input',
+    ) as HTMLInputElement
+    const file = new File(['x'], 'statement.ofx', { type: 'application/x-ofx' })
+    await userEvent.upload(input, file)
+
+    const commitBtn = await screen.findByRole('button', {
+      name: 'Commit import',
+    })
+    await userEvent.click(commitBtn)
+
+    // The rejection is handled (no unhandled promise) and state is retained:
+    // preview.reset() only runs on a SUCCESSFUL commit, so it must not fire here.
+    await waitFor(() => expect(commitMutateAsync).toHaveBeenCalledWith(file))
+    expect(previewReset).not.toHaveBeenCalled()
+    // Commit stays available so the user can retry.
+    expect(
+      screen.getByRole('button', { name: 'Commit import' }),
+    ).toBeInTheDocument()
+  })
+
+  it('caps the preview table at 100 rows and notes how many are hidden', () => {
+    const many = Array.from({ length: 150 }, (_, i) =>
+      makeTxn({ id: `t${i}`, payee_name: `Payee-${i}`, amount: -1000 }),
+    )
+    setup({ preview: { data: { ...samplePreview, new_transactions: many } } })
+    render(<ImportPage />)
+
+    const note = screen.getByTestId('row-cap-note')
+    expect(note).toHaveTextContent('Showing first 100 of 150')
+    expect(note).toHaveTextContent('+50')
+    // The first row renders; the 150th (beyond the cap) does not.
+    expect(screen.getByText('Payee-0')).toBeInTheDocument()
+    expect(screen.queryByText('Payee-149')).not.toBeInTheDocument()
   })
 })
 

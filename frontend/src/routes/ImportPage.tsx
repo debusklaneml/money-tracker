@@ -37,12 +37,19 @@ export default function ImportPage() {
 
   const handleCommit = () => {
     if (!file) return
-    commit.mutateAsync(file).then(() => {
-      // Success: clear the pending file & preview; the success summary lives
-      // on commit.data and survives this reset.
-      setFile(null)
-      preview.reset()
-    })
+    commit
+      .mutateAsync(file)
+      .then(() => {
+        // Success: clear the pending file & preview; the success summary lives
+        // on commit.data and survives this reset.
+        setFile(null)
+        preview.reset()
+      })
+      .catch(() => {
+        // Failure surfaces via commit.isError (the error banner). Keep the file
+        // and preview so the user can retry, and swallow the rejection so it
+        // doesn't become an unhandled promise rejection.
+      })
   }
 
   const handleReset = () => {

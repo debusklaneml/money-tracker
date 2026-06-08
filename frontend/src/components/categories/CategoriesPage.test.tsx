@@ -181,6 +181,34 @@ describe('CategoriesPage', () => {
     )
   })
 
+  it('reseeds the edit form when switching directly to another category', async () => {
+    const user = userEvent.setup()
+    render(<CategoriesPage />)
+
+    await user.click(screen.getByRole('button', { name: 'Edit Groceries' }))
+    expect(
+      (screen.getByLabelText('Category name') as HTMLInputElement).value,
+    ).toBe('Groceries')
+
+    // Switch straight to editing Rent WITHOUT cancelling first — the form must
+    // reseed to Rent's values, not keep Groceries' (regression guard for the
+    // reused-instance bug; fixed with key={editing.id}).
+    await user.click(screen.getByRole('button', { name: 'Edit Rent' }))
+
+    const nameInput = screen.getByLabelText('Category name') as HTMLInputElement
+    const groupInput = screen.getByLabelText(
+      'Category group',
+    ) as HTMLInputElement
+    expect(nameInput.value).toBe('Rent')
+    expect(groupInput.value).toBe('Housing')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: 'c3', body: { name: 'Rent', group: 'Housing' } },
+      expect.anything(),
+    )
+  })
+
   it('shows the empty state when there are no categories', () => {
     vi.mocked(useCategories).mockReturnValue({
       data: [],

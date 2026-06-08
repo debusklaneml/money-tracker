@@ -2,7 +2,7 @@
 // filtering, multi-row selection, and a bulk categorize action. Single-row
 // categorization is available via the per-row category select.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   useBulkCategorize,
@@ -62,6 +62,23 @@ export default function TransactionsPage() {
 
   const rows = transactions ?? []
   const cats = categories ?? []
+
+  // Prune the selection to ids still present whenever the row set changes
+  // (filter, search, or a refetch after a mutation). Without this, stale ids
+  // linger in `selectedIds` and a bulk action would target ghost rows while
+  // the count badge lies. Keyed on a stable id signature so it doesn't re-run
+  // on every render (rows is a fresh array each time).
+  const rowIdsKey = rows.map((t) => t.id).join(',')
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      const present = new Set(rows.map((t) => t.id))
+      const next = new Set<string>()
+      for (const id of prev) if (present.has(id)) next.add(id)
+      return next.size === prev.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowIdsKey])
 
   // Account filter options are derived from the (account-unfiltered) rows we
   // happen to have loaded. This is the simplest source without a separate
