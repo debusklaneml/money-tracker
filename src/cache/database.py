@@ -242,13 +242,14 @@ class Database:
     def ensure_local_budget(self) -> str:
         """Ensure the single local budget exists, seeding default categories once.
 
-        Idempotent and concurrency-safe: ``get_db()`` is ``lru_cache``d, but
-        ``functools.lru_cache`` does not serialize concurrent execution on a
-        cache miss, so two simultaneous first requests can both construct
-        ``Database`` and race here. We take the write lock up front with
-        ``BEGIN IMMEDIATE`` (so the second caller blocks until the first commits
-        and then sees the seeded rows) and use ``INSERT OR IGNORE`` as a
-        belt-and-suspenders guard against duplicate inserts.
+        Idempotent and concurrency-safe. ``Database`` construction is serialized
+        by ``deps.get_db``'s lock, but this method is also reachable directly via
+        ``deps.get_budget_id`` (itself ``lru_cache``d, which does not serialize
+        concurrent cache misses), so two threads can still call it at once. We
+        take the write lock up front with ``BEGIN IMMEDIATE`` (the second caller
+        blocks until the first commits and then sees the seeded rows) and use
+        ``INSERT OR IGNORE`` as a belt-and-suspenders guard against duplicate
+        inserts.
         """
         with self._get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")

@@ -29,13 +29,22 @@ const E2E_DB_PATH =
 
 export default defineConfig({
   testDir: './e2e',
+  // Specs run in parallel, but they share ONE webServer and ONE backend DB.
+  // That is safe only because the data-driven spec (data-flow) is the sole
+  // writer and every other spec is read-only. A second data-mutating spec must
+  // get its own DB/server, or the exact RTA/Available assertions will flake.
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retries: the data-flow spec mutates the shared DB and the webServer (and
+  // its DB) is NOT recreated between attempts, so a retry of a partial run
+  // starts dirty and can never reproduce the clean-slate assertions. A retry
+  // here would only mask the real first-attempt failure.
+  retries: 0,
   reporter: 'list',
   use: {
     baseURL: BASE_URL,
-    trace: 'on-first-retry',
+    // Retries are off, so capture a trace whenever a test fails.
+    trace: 'retain-on-failure',
   },
   projects: [
     {
