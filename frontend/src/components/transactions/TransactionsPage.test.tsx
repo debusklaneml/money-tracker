@@ -6,6 +6,7 @@ import TransactionsPage from '../../routes/TransactionsPage'
 
 vi.mock('../../lib/queries', () => ({
   useTransactions: vi.fn(),
+  useAccounts: vi.fn(),
   useCategories: vi.fn(),
   useBulkCategorize: vi.fn(),
   useCategorizeTransaction: vi.fn(),
@@ -13,12 +14,14 @@ vi.mock('../../lib/queries', () => ({
 
 import {
   useTransactions,
+  useAccounts,
   useCategories,
   useBulkCategorize,
   useCategorizeTransaction,
 } from '../../lib/queries'
 
 const mockedUseTransactions = vi.mocked(useTransactions)
+const mockedUseAccounts = vi.mocked(useAccounts)
 const mockedUseCategories = vi.mocked(useCategories)
 const mockedUseBulkCategorize = vi.mocked(useBulkCategorize)
 const mockedUseCategorizeTransaction = vi.mocked(useCategorizeTransaction)
@@ -127,6 +130,14 @@ beforeEach(() => {
     isLoading: false,
     isError: false,
   } as unknown as ReturnType<typeof useTransactions>)
+  mockedUseAccounts.mockReturnValue({
+    data: [
+      { id: 'a1', name: 'Checking' },
+      { id: 'a2', name: 'Savings' },
+    ],
+    isLoading: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useAccounts>)
   mockedUseCategories.mockReturnValue({
     data: sampleCategories,
     isLoading: false,
