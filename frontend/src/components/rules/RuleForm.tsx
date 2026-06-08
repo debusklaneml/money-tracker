@@ -4,14 +4,19 @@
 
 import { useState, type FormEvent } from 'react'
 
-import type { Category, RuleCreateRequest } from '../../lib/types'
+import type {
+  Category,
+  RuleCreateRequest,
+  RuleMatchField,
+  RuleMatchType,
+} from '../../lib/types'
 
-const MATCH_FIELDS = [
+const MATCH_FIELDS: { value: RuleMatchField; label: string }[] = [
   { value: 'payee', label: 'Payee' },
   { value: 'memo', label: 'Memo' },
 ]
 
-const MATCH_TYPES = [
+const MATCH_TYPES: { value: RuleMatchType; label: string }[] = [
   { value: 'contains', label: 'contains' },
   { value: 'equals', label: 'equals' },
   { value: 'regex', label: 'matches regex' },
@@ -19,7 +24,11 @@ const MATCH_TYPES = [
 
 interface RuleFormProps {
   categories: Category[]
-  onSubmit: (body: RuleCreateRequest) => void
+  /**
+   * Submit the new rule. May return a promise; the pattern field is cleared
+   * only if it resolves, so a failed create keeps the user's input.
+   */
+  onSubmit: (body: RuleCreateRequest) => void | Promise<unknown>
   pending?: boolean
 }
 
@@ -32,8 +41,8 @@ export default function RuleForm({
   pending,
 }: RuleFormProps) {
   const [pattern, setPattern] = useState('')
-  const [matchField, setMatchField] = useState('payee')
-  const [matchType, setMatchType] = useState('contains')
+  const [matchField, setMatchField] = useState<RuleMatchField>('payee')
+  const [matchType, setMatchType] = useState<RuleMatchType>('contains')
   const [categoryId, setCategoryId] = useState('')
   const [priority, setPriority] = useState('100')
 
@@ -46,15 +55,22 @@ export default function RuleForm({
     e.preventDefault()
     if (!canSubmit) return
     const parsedPriority = Number.parseInt(priority, 10)
-    onSubmit({
+    // Default to 100 when blank/NaN; never send a negative priority.
+    const safePriority = Number.isFinite(parsedPriority)
+      ? Math.max(0, parsedPriority)
+      : 100
+    const result = onSubmit({
       pattern: pattern.trim(),
       category_id: categoryId,
       match_field: matchField,
       match_type: matchType,
-      priority: Number.isFinite(parsedPriority) ? parsedPriority : 100,
+      priority: safePriority,
     })
-    // Clear the pattern for rapid entry; keep field/type/category/priority.
-    setPattern('')
+    // Clear the pattern for rapid entry ONLY on success; keep field/type/
+    // category/priority. A rejected submit retains the pattern so it isn't lost.
+    Promise.resolve(result)
+      .then(() => setPattern(''))
+      .catch(() => {})
   }
 
   return (
@@ -71,7 +87,7 @@ export default function RuleForm({
           aria-label="Match field"
           className={inputClass}
           value={matchField}
-          onChange={(e) => setMatchField(e.target.value)}
+          onChange={(e) => setMatchField(e.target.value as RuleMatchField)}
         >
           {MATCH_FIELDS.map((f) => (
             <option key={f.value} value={f.value}>
@@ -89,7 +105,7 @@ export default function RuleForm({
           aria-label="Match type"
           className={inputClass}
           value={matchType}
-          onChange={(e) => setMatchType(e.target.value)}
+          onChange={(e) => setMatchType(e.target.value as RuleMatchType)}
         >
           {MATCH_TYPES.map((t) => (
             <option key={t.value} value={t.value}>
@@ -140,6 +156,7 @@ export default function RuleForm({
         </span>
         <input
           type="number"
+          min={0}
           aria-label="Priority"
           className={inputClass}
           value={priority}

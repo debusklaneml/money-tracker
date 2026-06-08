@@ -79,10 +79,15 @@ export interface Transaction {
 
 // --- Rules ----------------------------------------------------------------
 
+/** Which transaction field a rule matches against. */
+export type RuleMatchField = 'payee' | 'memo';
+/** How a rule's pattern is compared to the field. */
+export type RuleMatchType = 'contains' | 'equals' | 'regex';
+
 export interface Rule {
   id: number;
-  match_field: string;
-  match_type: string;
+  match_field: RuleMatchField;
+  match_type: RuleMatchType;
   pattern: string;
   category_id: string;
   category_name: string | null;
@@ -217,8 +222,8 @@ export interface BulkCategorizeRequest {
 export interface RuleCreateRequest {
   pattern: string;
   category_id: string;
-  match_field?: string;
-  match_type?: string;
+  match_field?: RuleMatchField;
+  match_type?: RuleMatchType;
   priority?: number;
 }
 

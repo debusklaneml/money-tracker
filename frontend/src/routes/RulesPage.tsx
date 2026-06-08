@@ -22,22 +22,54 @@ export default function RulesPage() {
   const deleteRule = useDeleteRule()
   const applyRule = useApplyRule()
 
-  const [applyMessage, setApplyMessage] = useState<string | null>(null)
+  // A single feedback channel for apply/create/delete outcomes.
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
+
+  const errorText = (err: unknown, fallback: string) =>
+    (err instanceof Error && err.message) || fallback
 
   const handleCreate = (body: RuleCreateRequest) => {
-    createRule.mutate(body)
+    setFeedback(null)
+    // Return the promise so RuleForm clears the pattern only on success; also
+    // surface a 400 (e.g. category not found) instead of failing silently.
+    const promise = createRule.mutateAsync(body)
+    promise
+      .then(() => setFeedback({ type: 'success', text: 'Rule created.' }))
+      .catch((err) =>
+        setFeedback({
+          type: 'error',
+          text: errorText(err, 'Failed to create rule.'),
+        }),
+      )
+    return promise
   }
 
   const handleDelete = (id: number) => {
     if (window.confirm('Delete this rule? This cannot be undone.')) {
-      deleteRule.mutate(id)
+      setFeedback(null)
+      deleteRule.mutate(id, {
+        onError: (err) =>
+          setFeedback({
+            type: 'error',
+            text: errorText(err, 'Failed to delete rule.'),
+          }),
+      })
     }
   }
 
   const handleApply = (id: number) => {
-    setApplyMessage(null)
+    setFeedback(null)
     applyRule.mutate(id, {
-      onSuccess: (res) => setApplyMessage(res.message ?? 'Rule applied.'),
+      onSuccess: (res) =>
+        setFeedback({ type: 'success', text: res.message ?? 'Rule applied.' }),
+      onError: (err) =>
+        setFeedback({
+          type: 'error',
+          text: errorText(err, 'Failed to apply rule.'),
+        }),
     })
   }
 
@@ -63,12 +95,17 @@ export default function RulesPage() {
         pending={createRule.isPending}
       />
 
-      {applyMessage && (
+      {feedback && (
         <div
-          role="status"
-          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800"
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+          className={
+            'rounded-lg border px-4 py-2 text-sm ' +
+            (feedback.type === 'error'
+              ? 'border-rose-200 bg-rose-50 text-rose-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800')
+          }
         >
-          {applyMessage}
+          {feedback.text}
         </div>
       )}
 
