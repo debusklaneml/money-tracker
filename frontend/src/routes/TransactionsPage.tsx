@@ -5,12 +5,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+  useAccounts,
   useBulkCategorize,
   useCategories,
   useCategorizeTransaction,
   useTransactions,
 } from '../lib/queries'
-import type { Transaction, TransactionQueryParams } from '../lib/types'
+import type { TransactionQueryParams } from '../lib/types'
 import TransactionFilters, {
   type Filters,
 } from '../components/transactions/TransactionFilters'
@@ -32,19 +33,6 @@ function toQueryParams(filters: Filters): TransactionQueryParams {
   return params
 }
 
-/** Unique account options derived from the loaded transactions. */
-function deriveAccounts(
-  transactions: Transaction[],
-): { id: string; name: string }[] {
-  const seen = new Map<string, string>()
-  for (const txn of transactions) {
-    if (txn.account_id && !seen.has(txn.account_id)) {
-      seen.set(txn.account_id, txn.account_name ?? txn.account_id)
-    }
-  }
-  return [...seen.entries()].map(([id, name]) => ({ id, name }))
-}
-
 export default function TransactionsPage() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -56,6 +44,7 @@ export default function TransactionsPage() {
     isLoading,
     isError,
   } = useTransactions(params)
+  const { data: accountsData } = useAccounts()
   const { data: categories } = useCategories()
   const bulkCategorize = useBulkCategorize()
   const categorizeRow = useCategorizeTransaction()
@@ -80,10 +69,13 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowIdsKey])
 
-  // Account filter options are derived from the (account-unfiltered) rows we
-  // happen to have loaded. This is the simplest source without a separate
-  // accounts query.
-  const accounts = useMemo(() => deriveAccounts(rows), [rows])
+  // Account filter options come from the authoritative accounts query, so the
+  // dropdown lists every account regardless of which transactions happen to be
+  // loaded under the current filter/page.
+  const accounts = useMemo(
+    () => (accountsData ?? []).map((a) => ({ id: a.id, name: a.name })),
+    [accountsData],
+  )
 
   const toggle = (id: string) => {
     setSelectedIds((prev) => {
