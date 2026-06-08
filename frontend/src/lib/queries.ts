@@ -10,6 +10,7 @@ import type {
   CategoryCreateRequest,
   CategoryUpdateRequest,
   MoveRequest,
+  RuleCreateRequest,
   TransactionCategorizeRequest,
   TransactionQueryParams,
 } from './types';
@@ -268,6 +269,42 @@ export function useCommitImport() {
       qc.invalidateQueries({ queryKey: queryKeys.uncategorizedCount() });
       qc.invalidateQueries({ queryKey: ['budget'] });
       qc.invalidateQueries({ queryKey: queryKeys.importHistory() });
+    },
+  });
+}
+
+// --- Rule mutations --------------------------------------------------------
+
+export function useCreateRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RuleCreateRequest) => api.createRule(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.rules() });
+    },
+  });
+}
+
+export function useDeleteRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteRule(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.rules() });
+    },
+  });
+}
+
+export function useApplyRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.applyRule(id),
+    onSuccess: () => {
+      // Applying a rule re-categorizes already-imported transactions, which
+      // also shifts category activity in the budget. The ['transactions']
+      // prefix also covers the uncategorized-count key.
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['budget'] });
     },
   });
 }
