@@ -78,6 +78,13 @@ const transactionData: Transaction[] = [
   txn({ id: 't4', payee_name: 'Paycheck', amount: 500000 }),
 ]
 
+// Distinct data returned only for the category-filtered deep-dive query, so a
+// test can prove the deep-dive renders THIS set (not the page's 500-row page).
+const deepDiveData: Transaction[] = [
+  txn({ id: 'd1', payee_name: 'Whole Foods', amount: -50000, category_id: 'c1' }),
+  txn({ id: 'd2', payee_name: 'Trader Joes', amount: -30000, category_id: 'c1' }),
+] // total -$80.00
+
 const categoryData: Category[] = [
   {
     id: 'c1',
@@ -119,7 +126,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockedSpending.mockReturnValue(q(spendingData) as never)
   mockedTrend.mockReturnValue(q(trendData) as never)
-  mockedTransactions.mockReturnValue(q(transactionData) as never)
+  // Return the category-specific set for the deep-dive's filtered query, the
+  // payee set otherwise — so each consumer is verified against its own data.
+  mockedTransactions.mockImplementation(
+    (params) =>
+      (params?.category_id ? q(deepDiveData) : q(transactionData)) as never,
+  )
   mockedCategories.mockReturnValue(q(categoryData) as never)
 })
 
@@ -171,7 +183,7 @@ describe('SpendingPage', () => {
     expect(mockedSpending).toHaveBeenLastCalledWith(6)
   })
 
-  it('queries useTransactions with the selected category in the deep-dive', async () => {
+  it('queries the selected category and renders its transactions in the deep-dive', async () => {
     const user = userEvent.setup()
     render(<SpendingPage />)
 
@@ -185,7 +197,18 @@ describe('SpendingPage', () => {
       'c1',
     )
 
-    expect(mockedTransactions).toHaveBeenCalledWith({ category_id: 'c1' })
+    // The deep-dive's query is filtered AND gated (enabled only once chosen).
+    expect(mockedTransactions).toHaveBeenCalledWith(
+      { category_id: 'c1' },
+      { enabled: true },
+    )
+
+    // It renders the category-filtered rows and total, not the page's payee set.
+    const table = screen.getByTestId('deep-dive-table')
+    expect(within(table).getByText('Whole Foods')).toBeInTheDocument()
+    expect(within(table).getByText('Trader Joes')).toBeInTheDocument()
+    expect(within(table).queryByText('Costco')).not.toBeInTheDocument()
+    expect(screen.getByTestId('deep-dive-total')).toHaveTextContent('-$80.00')
   })
 
   it('renders empty states without crashing when all data is empty', () => {

@@ -21,10 +21,12 @@ export default function CategoryDeepDive({ categories }: CategoryDeepDiveProps) 
     [categories],
   )
 
-  // The query is only meaningful once a category is selected; passing an empty
-  // id would fetch everything, so we gate rendering on `categoryId` instead.
+  // The query is only meaningful once a category is selected. Gate the FETCH
+  // (not just rendering) with `enabled`, otherwise an unfiltered fetch-all
+  // would fire on mount before the user picks anything.
   const { data, isLoading } = useTransactions(
     categoryId ? { category_id: categoryId } : undefined,
+    { enabled: !!categoryId },
   )
 
   const transactions = categoryId ? (data ?? []) : []

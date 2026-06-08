@@ -55,10 +55,16 @@ export function useAccounts() {
   });
 }
 
-export function useTransactions(params?: TransactionQueryParams) {
+export function useTransactions(
+  params?: TransactionQueryParams,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: queryKeys.transactions(params),
     queryFn: () => api.getTransactions(params),
+    // Defaults to enabled; callers can gate the fetch (e.g. wait for a
+    // selection) without firing an unfiltered fetch-all on mount.
+    enabled: options?.enabled,
   });
 }
 

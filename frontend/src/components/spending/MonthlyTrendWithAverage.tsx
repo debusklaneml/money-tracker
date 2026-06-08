@@ -33,6 +33,9 @@ export default function MonthlyTrendWithAverage({
       rows: sorted.map((p) => ({
         month: p.month,
         dollars: toDisplay(p.total_amount),
+        // Carry the exact milliunit value so the tooltip formats it directly
+        // rather than re-deriving milliunits from the dollar value.
+        milliunits: p.total_amount,
       })),
       averageMilliunits: avg,
     }
@@ -68,7 +71,11 @@ export default function MonthlyTrendWithAverage({
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip formatter={(value) => formatMoney(Number(value) * 1000)} />
+            <Tooltip
+              formatter={(_value, _name, item) =>
+                formatMoney(Number(item?.payload?.milliunits ?? 0))
+              }
+            />
             <ReferenceLine
               y={toDisplay(averageMilliunits)}
               stroke="#f59e0b"

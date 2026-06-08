@@ -63,7 +63,9 @@ export default function SpendingBreakdown({ data }: SpendingBreakdownProps) {
             <XAxis dataKey="name" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip
-              formatter={(value) => formatMoney(Number(value) * 1000)}
+              formatter={(_value, _name, item) =>
+                formatMoney(Number(item?.payload?.total ?? 0))
+              }
             />
             <Bar dataKey="dollars" name="Spent" fill="#10b981" />
           </BarChart>
