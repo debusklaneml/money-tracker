@@ -8,6 +8,7 @@ const NAV_SECTIONS = [
   { to: '/import', label: 'Import' },
   { to: '/categories', label: 'Categories' },
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/spending', label: 'Spending' },
   { to: '/alerts', label: 'Alerts' },
   { to: '/rules', label: 'Rules' },
   { to: '/settings', label: 'Settings' },
