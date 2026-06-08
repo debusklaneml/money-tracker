@@ -77,6 +77,9 @@ export default function ImportPage() {
             {result.imported} imported · {result.duplicates} duplicate
             {result.duplicates === 1 ? '' : 's'} · {result.auto_categorized}{' '}
             auto-categorized
+            {result.ai_categorized > 0
+              ? ` · ${result.ai_categorized} AI-categorized`
+              : ''}
           </p>
           <button
             type="button"

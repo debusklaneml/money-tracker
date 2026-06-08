@@ -12,6 +12,14 @@ dependencies = [
     "uvicorn[standard]>=0.34",
 ]
 
+[project.optional-dependencies]
+# AI auto-classification fallback on import (bead bud-pco). Optional: the
+# classifier imports `anthropic` lazily and no-ops without it, so the core app
+# never hard-depends on the SDK. Install with `uv sync --extra ai`.
+ai = [
+    "anthropic>=0.45",
+]
+
 [project.scripts]
 bud = "backend.launch:main"
 

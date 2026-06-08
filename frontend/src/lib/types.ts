@@ -119,6 +119,7 @@ export interface ImportResult {
   imported: number;
   duplicates: number;
   auto_categorized: number;
+  ai_categorized: number;
   already_imported_file: boolean;
   date_min: string | null;
   date_max: string | null;

@@ -160,6 +160,7 @@ async def commit_import(
         imported=result.imported,
         duplicates=result.duplicates,
         auto_categorized=result.auto_categorized,
+        ai_categorized=result.ai_categorized,
         already_imported_file=result.already_imported_file,
         date_min=result.date_min,
         date_max=result.date_max,

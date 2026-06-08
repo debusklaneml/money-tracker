@@ -272,6 +272,11 @@ class ImportResult(BaseModel):
     auto_categorized: int = Field(
         0, description="Count of imported transactions auto-categorized by rules."
     )
+    ai_categorized: int = Field(
+        0,
+        description="Count of imported transactions categorized by the AI fallback "
+        "(rule-unmatched entries the classifier labeled).",
+    )
     already_imported_file: bool = Field(
         False, description="True if this file's content hash was imported before."
     )

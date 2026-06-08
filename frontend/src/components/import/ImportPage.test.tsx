@@ -71,6 +71,7 @@ const sampleResult: ImportResult = {
   imported: 12,
   duplicates: 3,
   auto_categorized: 7,
+  ai_categorized: 0,
   already_imported_file: false,
   date_min: '2026-05-01',
   date_max: '2026-05-31',
