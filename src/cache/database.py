@@ -240,14 +240,24 @@ class Database:
                     pass  # column already exists
 
     def ensure_local_budget(self) -> str:
-        """Ensure the single local budget exists, seeding default categories once."""
+        """Ensure the single local budget exists, seeding default categories once.
+
+        Idempotent and concurrency-safe: ``get_db()`` is ``lru_cache``d, but
+        ``functools.lru_cache`` does not serialize concurrent execution on a
+        cache miss, so two simultaneous first requests can both construct
+        ``Database`` and race here. We take the write lock up front with
+        ``BEGIN IMMEDIATE`` (so the second caller blocks until the first commits
+        and then sees the seeded rows) and use ``INSERT OR IGNORE`` as a
+        belt-and-suspenders guard against duplicate inserts.
+        """
         with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             exists = conn.execute(
                 "SELECT 1 FROM budgets WHERE id = ?", (LOCAL_BUDGET_ID,)
             ).fetchone()
             if not exists:
                 conn.execute(
-                    "INSERT INTO budgets (id, name) VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO budgets (id, name) VALUES (?, ?)",
                     (LOCAL_BUDGET_ID, LOCAL_BUDGET_NAME),
                 )
             has_categories = conn.execute(
