@@ -9,9 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-# Streamlit secrets (contains YNAB API token)
-.streamlit/secrets.toml
-
 # SQLite database cache
 *.db
 *.db-journal
@@ -35,3 +32,8 @@ Thumbs.db
 # Frontend (Vite + React)
 frontend/node_modules
 frontend/dist
+
+# Playwright E2E artifacts
+frontend/playwright-report
+frontend/test-results
+frontend/.playwright

@@ -5,6 +5,9 @@ import your bank statements (OFX/QFX), categorize transactions, and assign every
 dollar to a category. **No bank connection, no YNAB, no third parties** — all
 data lives in a local SQLite database on your machine.
 
+BUD is a single-user, local-first desktop-style web app: a React single-page
+app served by a small FastAPI backend, both running on one local port.
+
 ## Features
 
 - **Budget** — Ready to Assign front and center; assign every dollar to an
@@ -18,38 +21,87 @@ data lives in a local SQLite database on your machine.
 - **Insights** — Dashboard, spending analysis, and statistical alerts
   (Modified Z-Score unusual-spending detection).
 
-## Quick Start
+## Architecture
+
+BUD is three layers:
+
+- **Frontend** (`frontend/`) — a React + TypeScript single-page app built with
+  Vite. Routing is client-side (React Router); data fetching uses TanStack
+  Query; tables and charts use TanStack Table and Recharts.
+- **Backend** (`backend/`) — a thin FastAPI service. Routers live under
+  `backend/routers/` and are all mounted under `/api/*` (budget, categories,
+  transactions, imports, rules, accounts, insights, alerts, settings). A
+  liveness probe lives at `GET /api/health` → `{"status": "ok"}`.
+- **Core** (`src/`) — the unchanged Python domain logic the API wraps: the
+  budgeting engine, the OFX/QFX import service, the SQLite cache, and the
+  alert-detection algorithms.
+
+**Single-process serving.** In normal use there is just one server on one port.
+FastAPI serves the compiled SPA from `frontend/dist` *and* the JSON API from the
+same process. API routes are matched first; everything else falls back to the
+SPA's `index.html`, so client-side deep links (e.g. `/transactions`) survive a
+hard refresh. The static mount is guarded by an `is_dir()` check, so the API
+still runs in tests/CI even when no frontend build is present.
+
+> BUD's UI was migrated from Streamlit to this React + FastAPI stack; the Python
+> core in `src/` was carried over unchanged.
+
+## Getting Started
+
+You need [`uv`](https://github.com/astral-sh/uv) for the Python side and
+[Node.js](https://nodejs.org/) (with `npm`) for the frontend.
+
+### Production / normal use (single command)
+
+Build the frontend once, then run the app from the repo root. This starts the
+server on `http://127.0.0.1:8000` and opens your browser automatically.
 
 ```bash
+# 1. Build the SPA (only needed once, or whenever the frontend changes)
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 2. Install Python deps and launch
 uv sync
-uv run streamlit run app.py
+uv run bud
 ```
 
-Then open the **Import** page and upload an OFX or QFX export from your bank
-(look for *Download → Quicken (.qfx)* or *Microsoft Money (.ofx)*).
+`uv run bud` is equivalent to:
 
-## Development
+```bash
+uv run python -m backend.launch
+```
 
-BUD's UI is migrating from Streamlit to a React SPA backed by a thin FastAPI
-service. During the migration all three run side by side; **Streamlit stays
-fully runnable until the migration's final phase.**
+Environment variables:
 
-Run the backend and frontend dev servers in two terminals:
+- `BUD_PORT` — serve on a port other than `8000`.
+- `BUD_NO_BROWSER=1` — start the server without opening a browser.
+
+### Development (hot reload, two processes)
+
+For UI work you typically run the backend and the Vite dev server side by side.
+The Vite server proxies `/api` to the backend, so the SPA can call the API
+without CORS friction.
 
 ```bash
 # Terminal 1 — FastAPI API on :8000 (auto-reload)
-uv run uvicorn backend.main:app --reload
-
-# Terminal 2 — Vite dev server on :5173 (proxies /api → :8000)
-cd frontend && npm install && npm run dev
+uv run python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Then open http://localhost:5173. The legacy Streamlit app remains available
-with `uv run streamlit run app.py` (see Quick Start).
+```bash
+# Terminal 2 — Vite dev server on :5173 (proxies /api → :8000)
+cd frontend
+npm install
+npm run dev
+```
 
-> **Note:** if `uv` is not installed, use the project virtualenv directly:
-> `.venv/bin/python -m uvicorn backend.main:app --reload` and
-> `.venv/bin/python -m pytest`.
+Then open <http://localhost:5173>.
+
+After importing data, head to the **Import** page and upload an OFX or QFX
+export from your bank (look for *Download → Quicken (.qfx)* or
+*Microsoft Money (.ofx)*).
 
 ## How the budgeting math works
 
@@ -63,31 +115,51 @@ All money is tracked in milliunits (1/1000 of a dollar) to avoid float errors.
 - **Ready to Assign** = Σ(all income) − Σ(all assigned). Spending does *not*
   reduce Ready to Assign; it reduces a category's Available.
 
-## Data Privacy
+## Development
 
-- All data is stored locally in SQLite (`~/.bud/cache.db`).
-- Nothing is uploaded anywhere; there is no network/bank integration.
-
-## Project Structure
+### Project layout
 
 ```
 bud/
-├── app.py                  # Entry point + navigation + sidebar
-├── pages/                  # Budget, Import, Transactions, Categories, Insights
-├── src/
+├── backend/                # FastAPI app
+│   ├── main.py             # App instance, /api/health, routers, SPA serving
+│   ├── routers/            # /api/* endpoints (budget, imports, …)
+│   ├── schemas.py          # Pydantic request/response models
+│   └── deps.py             # Shared dependencies
+├── frontend/               # React + TypeScript SPA (Vite)
+│   ├── src/                # Components, pages, hooks
+│   └── dist/               # Production build (served by the backend)
+├── src/                    # Python core (unchanged domain logic)
 │   ├── imports/            # OFX/QFX parser + import service
-│   ├── budget/             # The budgeting engine (RTA, rollover, available)
+│   ├── budget/             # Budgeting engine (RTA, rollover, available)
 │   ├── cache/              # SQLite database
 │   ├── alerts/             # Alert detection algorithms
 │   └── utils/              # Formatters, config
-└── tests/                  # Engine + import test suite
+└── tests/                  # Backend / API test suite
 ```
 
-## Tests
+### Tests
 
 ```bash
-uv run pytest
+# Backend + API (pytest, 39 tests)
+uv run python -m pytest
+
+# Frontend unit tests (Vitest)
+cd frontend && npm test
+
+# End-to-end browser tests (Playwright)
+cd frontend && npm run e2e
 ```
+
+> If `uv` is not installed, you can use the project virtualenv directly, e.g.
+> `.venv/bin/python -m pytest` and
+> `.venv/bin/python -m uvicorn backend.main:app --reload`.
+
+## Data & Privacy
+
+- All data is stored locally in SQLite (`~/.bud/cache.db`).
+- Nothing is uploaded anywhere; there is no network or bank integration and no
+  third-party services.
 
 ## License
 

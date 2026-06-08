@@ -53,18 +53,45 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
+Python env is managed with **uv**; the frontend with **npm** (in `frontend/`).
 
 ```bash
-# Example:
-# npm install
-# npm test
+# One-time setup
+uv sync                                   # Python deps + editable install
+cd frontend && npm install && npm run build && cd ..
+
+# Run the whole app (one process, opens browser at http://127.0.0.1:8000)
+uv run bud                                # == uv run python -m backend.launch
+# env overrides: BUD_PORT (default 8000), BUD_NO_BROWSER=1
+
+# Dev mode (hot reload, two processes)
+uv run python -m uvicorn backend.main:app --reload --port 8000   # terminal 1
+cd frontend && npm run dev                                        # terminal 2 (Vite :5173, proxies /api)
+
+# Tests
+uv run python -m pytest                   # backend (pytest)
+cd frontend && npm test                   # frontend unit (Vitest)
+cd frontend && npm run e2e                # E2E (Playwright, boots the real server)
 ```
+
+If `import backend` ever fails after switching install modes, the fix is
+`rm -rf .venv && uv sync` (a stale editable `.pth` can linger).
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+A React + TypeScript SPA (`frontend/`, Vite) talks to a thin **FastAPI** backend
+(`backend/`, routers under `/api/*`) that wraps the Python core in `src/` (budget
+engine, OFX import service, SQLite cache, alerts). In production FastAPI serves
+the built SPA (`frontend/dist`) **and** the API on one port, with a catch-all that
+returns `index.html` so client-side deep links survive a refresh. Local,
+single-user, no auth; all data in a local SQLite DB. (Migrated from Streamlit in
+Phase 5.)
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- **Money is stored in milliunits** (integer thousandths of a dollar) end to end;
+  format only at the display edge.
+- Backend router tests isolate the DB via `BUD_DB_PATH` + `cache_clear()` on the
+  `lru_cache` deps — never `importlib.reload` (see the beads memory on test isolation).
+- Frontend unit tests live under `frontend/src/`; Playwright E2E lives under
+  `frontend/e2e/` (Vitest is scoped to `src/` so the two runners don't collide).
