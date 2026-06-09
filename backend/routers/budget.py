@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend import schemas
 from backend.deps import get_engine
-from src.budget.engine import BudgetEngine, current_month
+from src.budget.engine import BudgetEngine, RTAExceededError, current_month
 
 router = APIRouter(tags=["budget"])
 
@@ -44,9 +44,23 @@ def assign(
     req: schemas.AssignRequest,
     engine: BudgetEngine = Depends(get_engine),
 ) -> schemas.BudgetState:
-    """Set a category's assigned amount for a month, returning fresh state."""
+    """Set a category's assigned amount for a month, returning fresh state.
+
+    Rejects assignments that would push Ready to Assign below zero with a 400 —
+    you cannot assign money that does not exist yet. The error detail reports
+    how much is actually assignable to the category.
+    """
     month = req.month or current_month()
-    engine.assign(req.category_id, req.amount, month)
+    try:
+        engine.assign(req.category_id, req.amount, month)
+    except RTAExceededError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot assign {exc.requested}: only {exc.available} is "
+                "available to assign for this month."
+            ),
+        ) from exc
     return _state(engine, month)
 
 

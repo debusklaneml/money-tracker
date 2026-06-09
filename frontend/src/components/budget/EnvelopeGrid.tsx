@@ -102,16 +102,28 @@ function AssignedCell({
     )
   }
 
+  // The backend rejects an assignment that would push Ready to Assign below
+  // zero (you can't assign money you don't have) with a 400. Surface that
+  // inline so the user sees why the edit didn't stick.
   return (
-    <button
-      type="button"
-      aria-label={`Assigned for ${category.name}`}
-      onClick={startEditing}
-      disabled={assign.isPending}
-      className="w-28 rounded px-2 py-1 text-right text-sm tabular-nums text-slate-800 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-60"
-    >
-      {formatMoney(category.assigned)}
-    </button>
+    <div className="flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        aria-label={`Assigned for ${category.name}`}
+        onClick={startEditing}
+        disabled={assign.isPending}
+        className="w-28 rounded px-2 py-1 text-right text-sm tabular-nums text-slate-800 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-60"
+      >
+        {formatMoney(category.assigned)}
+      </button>
+      {assign.isError && (
+        <span role="alert" className="max-w-[12rem] text-right text-xs text-rose-600">
+          {assign.error instanceof Error
+            ? assign.error.message
+            : "Can't assign more than Ready to Assign."}
+        </span>
+      )}
+    </div>
   )
 }
 

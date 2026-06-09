@@ -160,4 +160,21 @@ describe('EnvelopeGrid', () => {
     // Rent 100000 + Power 0 = 100000 → $100.00.
     expect(within(grid).getAllByText('$100.00').length).toBeGreaterThan(0)
   })
+
+  it('surfaces a blocked-assign (Ready-to-Assign exceeded) error inline', () => {
+    mockedUseAssign.mockReturnValue({
+      mutate,
+      mutateAsync: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new Error(
+        'Cannot assign 200000: only 100000 is available to assign for this month.',
+      ),
+    } as unknown as ReturnType<typeof useAssign>)
+    render(<EnvelopeGrid />)
+    // The error reflects the shared assign-mutation state, shown at the cells.
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts.length).toBeGreaterThan(0)
+    expect(alerts[0]).toHaveTextContent(/only 100000 is available/i)
+  })
 })

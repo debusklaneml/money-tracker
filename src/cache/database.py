@@ -966,6 +966,23 @@ class Database:
             (budget_id, through_month),
         )
 
+    def active_months(self, budget_id: str, through_month: str) -> list[str]:
+        """Distinct budget months (YYYY-MM-01) that have any assignment or activity,
+        up to and including ``through_month``. Used by the engine to walk month
+        boundaries when rolling cash overspend into Ready to Assign.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """SELECT month FROM monthly_budgets
+                       WHERE budget_id = ? AND month <= ?
+                   UNION
+                   SELECT strftime('%Y-%m-01', date) AS month FROM transactions
+                       WHERE budget_id = ? AND deleted = 0 AND category_id IS NOT NULL
+                         AND strftime('%Y-%m-01', date) <= ?""",
+                (budget_id, through_month, budget_id, through_month),
+            ).fetchall()
+        return sorted({r[0] for r in rows if r[0]})
+
     def assigned_in_month(self, budget_id: str, month: str) -> dict[str, int]:
         return self._sum_map(
             """SELECT category_id, SUM(budgeted) FROM monthly_budgets
@@ -1018,6 +1035,20 @@ class Database:
             row = conn.execute(
                 "SELECT SUM(budgeted) FROM monthly_budgets WHERE budget_id = ? AND month <= ?",
                 (budget_id, through_month),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def total_assigned_all_months(self, budget_id: str) -> int:
+        """Sum of assignments across ALL months (past and future).
+
+        Ready to Assign draws from a single pool of cash, so assigning into a
+        *future* month must reduce the current month's RTA too — hence the
+        global sum rather than ``month <= ?``. See the engine docstring.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT SUM(budgeted) FROM monthly_budgets WHERE budget_id = ?",
+                (budget_id,),
             ).fetchone()
             return int(row[0] or 0)
 

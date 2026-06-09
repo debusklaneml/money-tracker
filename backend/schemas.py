@@ -33,7 +33,10 @@ class CategoryState(BaseModel):
 
     Mirrors ``src.budget.engine.CategoryState``. ``assigned`` and ``activity``
     are scoped to the requested month; ``available`` is the rolling balance
-    through that month (so unspent money carries forward).
+    through that month (unspent money carries forward). Per the YNAB cash-
+    overspend rule, a *prior* month's overspend is floored to 0 on carry-in
+    (and instead docks this month's ``ready_to_assign``); the current month's
+    ``available`` may still be negative while spending exceeds the envelope.
     """
 
     id: str = Field(..., description="Category id (uuid hex).")
@@ -52,13 +55,21 @@ class BudgetState(BaseModel):
     """The full budget state for a month, including Ready-to-Assign.
 
     Mirrors ``src.budget.engine.BudgetState``. ``ready_to_assign`` is
-    cumulative income minus cumulative assigned through ``month``; spending
-    does not reduce it (it reduces a category's ``available``).
+    cumulative income minus cumulative assigned through ``month`` minus any
+    prior-month cash overspend rolled forward; spending itself does not reduce
+    it (it reduces a category's ``available``). It is also the most you may
+    additionally assign this month — the assign endpoint rejects anything that
+    would push it below zero.
     """
 
     month: str = Field(..., description="Budget month as YYYY-MM-01.")
     ready_to_assign: int = Field(
-        ..., description="Milliunits available to assign (cumulative income - assigned)."
+        ...,
+        description=(
+            "Milliunits available to assign: cumulative income − cumulative "
+            "assigned − prior-month cash overspend. Cannot be driven below 0 "
+            "by an assignment."
+        ),
     )
     income_month: int = Field(..., description="Milliunits of income in this month.")
     income_total: int = Field(
