@@ -71,36 +71,48 @@ upsert-only and silently misses deletions/prunes — see
 
 ### One-time setup (per machine, after first clone)
 
+**Just run the onboarding script** — it does the right thing whether or not you
+already have a local beads DB, and enables the pre-push guard:
+
 ```bash
-bd bootstrap                          # clones the issue history (refs/dolt/data) and wires the Dolt remote
-bd dolt remote list                   # verify: should list `origin`, NOT "No remotes configured"
-git config core.hooksPath .githooks   # enable the pre-push guard (see below)
+sh scripts/beads-onboard.sh
 ```
+
+It enables the guard, then either bootstraps fresh, or (if you already have a
+local DB) rescues your local issues, adopts the canonical shared history, and
+tells you how to re-add any local-only work. Verify with `bd ready`.
 
 **Pre-push guard.** `.githooks/pre-push` runs on every `git push`: it refuses to
 push if your Dolt remote isn't wired, and it runs `bd dolt push` for you,
 aborting the push if issue sync fails. This makes silent issue drift impossible.
-It only activates after you set `core.hooksPath` above (one time, per clone).
-Emergency bypass: `git push --no-verify`.
+It activates once `core.hooksPath` is set (the script does this). Emergency
+bypass: `git push --no-verify`.
 
-If `bd dolt remote list` still shows **no remotes**, wire it explicitly:
+<details><summary>What the script does (manual equivalent)</summary>
+
+```bash
+git config core.hooksPath .githooks   # enable the guard
+bd bootstrap                          # clone the shared history + wire the Dolt remote
+bd dolt remote list                   # verify: lists `origin`, NOT "No remotes configured"
+```
+
+If `bd dolt remote list` shows **no remotes**, wire it explicitly:
 
 ```bash
 bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git
 bd dolt pull
 ```
+</details>
 
-If you created any issues locally *before* doing this setup, run `bd dolt push`
-once afterward so they merge into the shared history instead of being stranded.
-
-**If `bd dolt pull`/`push` reports "no common ancestor"** your local DB was
-initialized independently from the shared history (the original cause of this
-whole mess). Recover by adopting the canonical remote:
+**If `bd bootstrap` errors with `database exists` (Error 1007), or `bd dolt
+pull`/`push` reports `no common ancestor`** you already have a local DB that was
+initialized independently from the shared history. The onboarding script handles
+this automatically; the manual equivalent is:
 
 ```bash
 bd export --output /tmp/my-local-issues.jsonl   # rescue any local-only issues first
 rm -rf .beads/embeddeddolt && bd bootstrap        # re-clone the canonical history
-bd import /tmp/my-local-issues.jsonl              # re-add your rescued issues, then:
+bd import /tmp/my-local-issues.jsonl              # re-add ONLY if you had real local work, then:
 bd dolt push
 ```
 

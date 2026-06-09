@@ -175,16 +175,21 @@ A plain `git pull` only refreshes the `issues.jsonl` *file*; it does **not**
 update your local issue database, and importing that file is an anti-pattern
 (it's upsert-only and misses deletions). Sync issues with `bd dolt pull/push`.
 
-**First time on a new machine** (after cloning the repo):
+**First time on a new machine** (after cloning the repo) — run the onboarding
+script. It works whether or not you've used `bd` here before:
 
 ```bash
-bd bootstrap                          # clones issue history + wires the Dolt remote
-bd dolt remote list                   # verify it shows `origin` (not "No remotes configured")
-git config core.hooksPath .githooks   # enable the pre-push guard (see below)
-# If no remote is shown:
-#   bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git
-#   bd dolt pull
+sh scripts/beads-onboard.sh
 ```
+
+It enables the pre-push guard and either bootstraps the shared issue history or,
+if you already have a local beads DB, rescues your local issues and adopts the
+canonical history (then tells you how to re-add any local-only work). Verify with
+`bd ready`.
+
+> **Already have a local `bud` DB?** A bare `bd bootstrap` will fail with
+> `Error 1007: can't create database bud; database exists` — that's expected, and
+> exactly why you should use the script above instead.
 
 The repo ships a **pre-push guard** (`.githooks/pre-push`): once you set
 `core.hooksPath` above, every `git push` first verifies your Dolt remote is wired
