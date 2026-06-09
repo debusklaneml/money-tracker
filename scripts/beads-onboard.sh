@@ -47,10 +47,19 @@ cd "$(git rev-parse --show-toplevel)"
 if [ -f .bd-version ]; then
 	REQ=$(tr -d ' \t\r\n' < .bd-version)
 	HAVE=$(bd version 2>/dev/null | sed -n 's/^bd version \([0-9][0-9.]*\).*/\1/p' | head -1)
+	case "$HAVE" in
+		1.0.5)
+			echo "⛔ You are on bd 1.0.5 — a PRERELEASE that can SILENTLY break multi-machine"
+			echo "   dolt sync (Homebrew was reverted to 1.0.4; fix expected in 1.0.6)."
+			echo "   Downgrade to the pinned $REQ before syncing:  brew reinstall beads"
+			echo "   (or reinstall the $REQ release binary), then re-run this."
+			echo ""
+			;;
+	esac
 	if [ -n "$REQ" ] && [ -n "$HAVE" ] && [ "$REQ" != "$HAVE" ]; then
 		echo "⚠ bd version mismatch: you have $HAVE, the team pin (.bd-version) is $REQ."
 		echo "  Mismatched versions cause schema-migration errors across machines."
-		echo "  Upgrade to match, e.g.:  brew upgrade beads   (or your install method)"
+		echo "  Match the pin, e.g.:  brew reinstall beads   (or reinstall the $REQ binary)"
 		echo "  Continuing anyway…"
 		echo ""
 	fi

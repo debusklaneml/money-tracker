@@ -188,8 +188,10 @@ sh scripts/beads-onboard.sh
 > run if your beads ever look out of sync.
 
 > **Everyone runs the same `bd` version** — pinned in [`.bd-version`](.bd-version)
-> (`brew upgrade beads` to match). Version drift causes schema-migration errors;
-> the onboarding script warns you if you're off.
+> (currently `1.0.4`; `brew reinstall beads` to match). Version drift causes
+> schema-migration errors; the onboarding script warns you if you're off.
+> **Do not use `bd 1.0.5`** — it's a prerelease that can silently break
+> multi-machine `bd dolt` sync (Homebrew reverted to 1.0.4; fix in 1.0.6).
 
 It enables the pre-push guard and either bootstraps the shared issue history or,
 if you already have a local beads DB, rescues your local issues and adopts the
