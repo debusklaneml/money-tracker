@@ -86,6 +86,21 @@ bd dolt pull
 If you created any issues locally *before* doing this setup, run `bd dolt push`
 once afterward so they merge into the shared history instead of being stranded.
 
+**If `bd dolt pull`/`push` reports "no common ancestor"** your local DB was
+initialized independently from the shared history (the original cause of this
+whole mess). Recover by adopting the canonical remote:
+
+```bash
+bd export --output /tmp/my-local-issues.jsonl   # rescue any local-only issues first
+rm -rf .beads/embeddeddolt && bd bootstrap        # re-clone the canonical history
+bd import /tmp/my-local-issues.jsonl              # re-add your rescued issues, then:
+bd dolt push
+```
+
+> Note: `bd dolt show` may print `Remotes: (none)` even when the remote is
+> correctly wired — that's a cosmetic gap. Trust `bd dolt remote list` (and a
+> successful `bd dolt push`) instead.
+
 ### Every session
 
 ```bash
