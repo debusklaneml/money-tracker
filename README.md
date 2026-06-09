@@ -196,9 +196,15 @@ The repo ships a **pre-push guard** (`.githooks/pre-push`): once you set
 and runs `bd dolt push` for you, aborting the push if issues can't sync — so code
 and issues never drift apart. Bypass in a pinch with `git push --no-verify`.
 
-**Each session:** `bd dolt pull` before you start, `bd dolt push` when you finish
-(alongside your `git push`). If you're using an AI agent, point it at
-[`CLAUDE.md`](CLAUDE.md) — it has the same steps in agent-ready form. Full model:
+**Each session (steady state):** `bd dolt pull` before you start, `bd dolt push`
+when you finish (alongside your `git push`) — the direct analog of `git pull` /
+`git push`, exactly as the beads docs prescribe. **Re-aligning a machine that
+already has the shared DB is just `bd dolt pull`** — you only need the
+`beads-onboard.sh` repair once, if your DB started as an independent history.
+
+For Claude Code sessions this is largely automatic: `SessionStart` runs
+`bd dolt pull` and the pre-push guard runs `bd dolt push` on `git push`. Point
+your agent at [`CLAUDE.md`](CLAUDE.md) for the agent-ready details. Full model:
 [beads SYNC_CONCEPTS.md](https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md).
 
 ## Self-hosting & remote access

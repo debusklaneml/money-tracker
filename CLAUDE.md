@@ -120,16 +120,31 @@ bd dolt push
 > correctly wired — that's a cosmetic gap. Trust `bd dolt remote list` (and a
 > successful `bd dolt push`) instead.
 
-### Every session
+### Every session (steady state)
+
+Once you've onboarded, issue sync is the same two-command rhythm the beads docs
+prescribe — the direct analog of git:
 
 ```bash
-bd dolt pull            # START: pull teammates' issue changes before working
+bd dolt pull            # START: pull teammates' issue changes (like `git pull`)
 # ...do work, bd create / update / close...
-bd dolt push            # END: publish your issue changes (in addition to git push)
+bd dolt push            # END: publish your issue changes (like `git push`)
 ```
 
-The session-completion workflow above already includes `git push`; on this team
-you must **also** `bd dolt push` so issues are shared, not just code.
+**On this repo it's largely automatic for Claude Code sessions:**
+- `SessionStart` runs `bd dolt pull` for you (best-effort; if it can't sync it
+  prints "run `sh scripts/beads-onboard.sh`").
+- The `.githooks/pre-push` guard runs `bd dolt push` on every `git push`.
+
+So in practice: pull-in happens at session start, push-out happens when you push
+code. The manual commands above are the fallback (and what non–Claude-Code
+contributors run). The session-completion workflow already includes `git push`;
+the guard makes sure issues ride along with it.
+
+> **Re-aligning an existing machine is just `bd dolt pull`** — same as `git pull`.
+> You only need the one-time `scripts/beads-onboard.sh` repair if your local DB
+> is an *independent* history ("no common ancestor" / "database exists"); after
+> that once, you're in this normal pull/push rhythm forever.
 
 
 ## Build & Test

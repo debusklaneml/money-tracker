@@ -21,6 +21,10 @@
           {
             "command": "git config core.hooksPath .githooks",
             "type": "command"
+          },
+          {
+            "command": "bd dolt pull >/dev/null 2>&1 || echo 'beads: issues not synced — run: sh scripts/beads-onboard.sh'",
+            "type": "command"
           }
         ],
         "matcher": ""

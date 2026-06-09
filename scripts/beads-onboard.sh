@@ -1,45 +1,106 @@
 #!/usr/bin/env sh
-# Safe beads onboarding — adopt the shared issue history without losing local work.
+# Beads sync — make your local issue DB match the shared history.
 #
-# Run this ONCE after cloning, or any time `bd bootstrap` fails with
-#   "Error 1007: can't create database bud; database exists"
-# (that error means you already have a local beads DB from an earlier `bd init`,
-#  and `bd bootstrap` refuses to overwrite it).
+# Safe to run ANY time, in any state. It figures out which situation you're in:
+#   • no local DB              -> bootstraps the shared history (fresh clone)
+#   • have the shared DB       -> 'bd dolt pull' (the normal, git-like sync)
+#   • have an INDEPENDENT DB    -> one-time repair: rescue your issues, then adopt
+#     the canonical history (only after you confirm; your issues are exported first)
 #
-# What it does:
-#   • enables the pre-push guard (core.hooksPath)
-#   • if you have NO local beads DB  -> plain bootstrap from the shared remote
-#   • if you DO have a local DB       -> exports a rescue copy, removes the stale
-#     local DB, clones the canonical shared history, and tells you how to re-add
-#     any local-only issues (it never auto-pushes local junk to the shared history)
+# Per the beads docs the steady state is just `bd dolt pull` / `bd dolt push`
+# (bootstrap once). This script is the durable front door to that: run it after
+# cloning, or any time `bd bootstrap`/`bd dolt pull` errors.
 #
-# Usage:  sh scripts/beads-onboard.sh
+# Usage:
+#   sh scripts/beads-onboard.sh            # do it
+#   sh scripts/beads-onboard.sh --dry-run  # show what it would do
+#   sh scripts/beads-onboard.sh --yes      # don't prompt before a repair
 
 set -eu
+
+REMOTE_URL="git+https://github.com/debusklaneml/money-tracker.git"
+DRY=0
+ASSUME_YES=0
+for arg in "$@"; do
+	case "$arg" in
+		--dry-run) DRY=1 ;;
+		--yes | -y) ASSUME_YES=1 ;;
+		*) echo "unknown flag: $arg" >&2; exit 2 ;;
+	esac
+done
+
+run() { # echo + execute, or just echo under --dry-run
+	echo "  \$ $*"
+	[ "$DRY" -eq 1 ] && return 0
+	"$@"
+}
 
 if ! command -v bd >/dev/null 2>&1; then
 	echo "✗ bd (beads) is not installed. Install it first, then re-run." >&2
 	exit 1
 fi
 
-# Always operate from the repo root so relative paths are correct.
 cd "$(git rev-parse --show-toplevel)"
 
-# Enable the pre-push guard (idempotent; harmless to re-run).
-git config core.hooksPath .githooks
+# Always enable the pre-push guard (idempotent).
+run git config core.hooksPath .githooks
 echo "✓ pre-push guard enabled (core.hooksPath=.githooks)"
 
-# Case 1: no local DB yet — a plain bootstrap is all that's needed.
+# Make sure the Dolt remote is wired (needed for pull/bootstrap).
+if ! bd dolt remote list 2>/dev/null | grep -qE '://|git\+'; then
+	echo "Dolt remote not configured — adding it…"
+	run bd dolt remote add origin "$REMOTE_URL" || true
+fi
+
+# --- Situation 1: no local DB -> fresh bootstrap ----------------------------
 if [ ! -d .beads/embeddeddolt ]; then
 	echo "No local beads DB found — bootstrapping the shared history…"
-	bd bootstrap --yes
+	run bd bootstrap --yes
 	echo "✓ Done. Run 'bd ready' to see the backlog."
 	exit 0
 fi
 
-# Case 2: a local DB exists. Rescue it, then adopt the canonical shared history.
+# --- Situation 2: local DB exists -> try the normal, git-like sync first -----
+echo "Local beads DB found — trying 'bd dolt pull' (the normal sync)…"
+if [ "$DRY" -eq 1 ]; then
+	echo "  \$ bd dolt pull   # if this fails with 'no common ancestor', a one-time repair runs"
+	exit 0
+fi
+
+PULL_ERR="${TMPDIR:-/tmp}/bd-pull-err-$$.txt"
+if bd dolt pull >"$PULL_ERR" 2>&1; then
+	cat "$PULL_ERR"
+	rm -f "$PULL_ERR"
+	echo "✓ Synced via 'bd dolt pull' — already aligned with the shared history."
+	exit 0
+fi
+
+# Pull failed. Distinguish an orphan/independent history (needs repair) from a
+# transient error (don't destroy anything).
+if grep -qiE "no common ancestor|database exists|unrelated histor" "$PULL_ERR"; then
+	echo "⚠ Your local DB is an INDEPENDENT history (no common ancestor with the shared one)."
+	echo "  This needs a one-time repair to adopt the canonical history."
+else
+	echo "✗ 'bd dolt pull' failed for an unexpected reason:" >&2
+	cat "$PULL_ERR" >&2
+	echo "  Not touching your local DB. Resolve the above and re-run." >&2
+	rm -f "$PULL_ERR"
+	exit 1
+fi
+rm -f "$PULL_ERR"
+
+# Confirm before the destructive (but rescue-backed) repair.
+if [ "$ASSUME_YES" -ne 1 ]; then
+	printf "Adopt the canonical shared history now? Your local issues are exported first. [y/N] "
+	read -r ANS
+	case "$ANS" in
+		y | Y | yes | YES) ;;
+		*) echo "Aborted — nothing changed."; exit 1 ;;
+	esac
+fi
+
 RESCUE="${TMPDIR:-/tmp}/beads-local-rescue-$$.jsonl"
-echo "Existing local beads DB found — exporting a rescue copy first…"
+echo "Exporting a rescue copy of your local issues…"
 bd export --output "$RESCUE" 2>/dev/null || true
 COUNT=0
 if [ -f "$RESCUE" ]; then
@@ -47,7 +108,7 @@ if [ -f "$RESCUE" ]; then
 fi
 echo "  rescued $COUNT local record(s) -> $RESCUE"
 
-echo "Removing the stale local DB and cloning the canonical shared history…"
+echo "Removing the independent local DB and cloning the canonical history…"
 rm -rf .beads/embeddeddolt
 bd bootstrap --yes
 
@@ -55,7 +116,7 @@ echo ""
 echo "✓ Adopted the shared issue history. Verify with: bd ready"
 if [ "$COUNT" -gt 0 ]; then
 	echo ""
-	echo "⚠ You had $COUNT local issue record(s) saved at:"
+	echo "⚠ You had $COUNT local record(s) saved at:"
 	echo "    $RESCUE"
 	echo "  If any are REAL work not already on the shared backlog, add them with:"
 	echo "    bd import \"$RESCUE\" && bd dolt push"
