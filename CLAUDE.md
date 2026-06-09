@@ -71,8 +71,12 @@ upsert-only and silently misses deletions/prunes — see
 
 ### One-time setup (per machine, after first clone)
 
-**Just run the onboarding script** — it does the right thing whether or not you
-already have a local beads DB, and enables the pre-push guard:
+**Easiest: run the `/fix-beads` slash command** (Claude Code) — it drives the
+script below, helps you keep any local-only issues, and verifies you're synced.
+Any colleague having trouble can just run `/fix-beads`.
+
+Or run the script directly — it does the right thing whether or not you already
+have a local beads DB, and enables the pre-push guard:
 
 ```bash
 sh scripts/beads-onboard.sh

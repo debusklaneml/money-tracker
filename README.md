@@ -175,12 +175,17 @@ A plain `git pull` only refreshes the `issues.jsonl` *file*; it does **not**
 update your local issue database, and importing that file is an anti-pattern
 (it's upsert-only and misses deletions). Sync issues with `bd dolt pull/push`.
 
-**First time on a new machine** (after cloning the repo) — run the onboarding
-script. It works whether or not you've used `bd` here before:
+**First time on a new machine** (after cloning the repo) — or any time issue sync
+seems off — run the onboarding script. It works whether or not you've used `bd`
+here before:
 
 ```bash
 sh scripts/beads-onboard.sh
 ```
+
+> Using Claude Code? Just run **`/fix-beads`** — it drives this script, helps you
+> keep any local-only issues, and verifies you're synced. It's the one thing to
+> run if your beads ever look out of sync.
 
 It enables the pre-push guard and either bootstraps the shared issue history or,
 if you already have a local beads DB, rescues your local issues and adopts the
