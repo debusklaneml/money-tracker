@@ -35,7 +35,12 @@ def get_budget(
     ),
     engine: BudgetEngine = Depends(get_engine),
 ) -> schemas.BudgetState:
-    """Return the full budget state for ``month`` (default: current month)."""
+    """Return the full budget state for ``month`` (default: current month).
+
+    Ensures each credit account has its linked payment category before computing
+    state, so newly-imported credit cards show up automatically (idempotent).
+    """
+    engine.db.sync_payment_categories(engine.budget_id)
     return _state(engine, month)
 
 
@@ -72,4 +77,23 @@ def move(
     """Move money between two categories for a month, returning fresh state."""
     month = req.month or current_month()
     engine.move(req.from_id, req.to_id, req.amount, month)
+    return _state(engine, month)
+
+
+@router.post("/budget/auto-assign", response_model=schemas.BudgetState)
+def auto_assign(
+    req: schemas.AutoAssignRequest,
+    engine: BudgetEngine = Depends(get_engine),
+) -> schemas.BudgetState:
+    """Auto-fill the month's assignments by strategy, returning fresh state.
+
+    Respects the Ready-to-Assign guard: never assigns more than the available
+    cash, and only adds money (never lowers an existing assignment). Returns
+    400 for an unknown strategy.
+    """
+    month = req.month or current_month()
+    try:
+        engine.auto_assign(month, req.strategy, lookback=req.lookback)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _state(engine, month)

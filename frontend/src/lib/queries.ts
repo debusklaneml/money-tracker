@@ -5,12 +5,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type {
   AssignRequest,
+  AutoAssignRequest,
   BudgetState,
   BulkCategorizeRequest,
   CategoryCreateRequest,
   CategoryUpdateRequest,
   MoveRequest,
   RuleCreateRequest,
+  TargetRequest,
   TransactionCategorizeRequest,
   TransactionQueryParams,
 } from './types';
@@ -205,6 +207,16 @@ export function useMove() {
   });
 }
 
+export function useAutoAssign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AutoAssignRequest) => api.autoAssign(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
 export function useCategorizeTransaction() {
   const qc = useQueryClient();
   return useMutation({
@@ -276,6 +288,31 @@ export function useDeleteCategory() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteCategory(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+// --- Category target mutations --------------------------------------------
+
+export function useSetCategoryTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: TargetRequest }) =>
+      api.setCategoryTarget(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.categories() });
+      qc.invalidateQueries({ queryKey: ['budget'] });
+    },
+  });
+}
+
+export function useDeleteCategoryTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCategoryTarget(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.categories() });
       qc.invalidateQueries({ queryKey: ['budget'] });

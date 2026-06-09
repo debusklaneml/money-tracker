@@ -51,10 +51,12 @@ the *rolled-over* overspend at a month boundary does.
 Cash vs. credit
 ---------------
 Only **cash** overspending docks Ready to Assign. Credit-card overspending is
-handled differently (it increases card debt, covered later via a credit-card
-payment category) and is out of scope here (tracked as bud-px9). The
-:meth:`BudgetEngine._overspend_is_cash` helper is the single seam where that
-distinction will plug in; for now every account is treated as cash.
+handled differently: it increases card debt, covered later via the card's
+credit-card payment category. :meth:`BudgetEngine.get_state` splits a prior
+month's overspend into its credit part (capped by that month's credit spend on
+the category — becomes debt, no RTA dock) and its cash part (docks RTA), using
+:meth:`_payment_activity` to set the money aside into each card's payment
+category.
 """
 
 from __future__ import annotations
@@ -64,6 +66,7 @@ from datetime import datetime
 from typing import Optional
 
 from src.cache.database import Database, LOCAL_BUDGET_ID
+from src.budget.targets import Target, monthly_need, underfunded
 
 
 def current_month() -> str:
@@ -97,6 +100,13 @@ class CategoryState:
     assigned: int     # assigned this month
     activity: int     # activity this month (negative = spending)
     available: int    # rolling balance through this month (carry-in floored at 0)
+    # Target info (None when the category has no funding target).
+    target_amount: Optional[int] = None      # milliunits
+    target_cadence: Optional[str] = None     # weekly | monthly | yearly | custom
+    target_mode: Optional[str] = None        # full | refill
+    target_needed: int = 0                   # what this month wants (cadence only)
+    underfunded: int = 0                     # still missing after assigned/carry-in
+    is_payment: bool = False                 # credit-card payment category?
 
 
 @dataclass
@@ -157,17 +167,112 @@ class BudgetEngine:
             self.budget_id, month, to_id, assigned.get(to_id, 0) + amount, 0, 0
         )
 
-    # --- overspend classification (cash vs credit) --------------------
-    def _overspend_is_cash(self, category_id: str) -> bool:
-        """Whether overspending in this category should dock Ready to Assign.
+    # --- auto-assign (bud-6hv) ----------------------------------------
+    @staticmethod
+    def _prev_month(month: str, back: int = 1) -> str:
+        """The month string ``back`` months before ``month`` (YYYY-MM-01)."""
+        y, m = int(month[:4]), int(month[5:7])
+        idx = (y * 12 + (m - 1)) - back
+        return f"{idx // 12:04d}-{idx % 12 + 1:02d}-01"
 
-        Cash overspending rolls to next month's RTA; credit overspending does
-        not (it becomes card debt, covered via a credit-card payment category —
-        out of scope, bud-px9). Today every account is treated as cash, so this
-        always returns True; it exists as the seam where the credit/cash split
-        will later plug in.
+    def auto_assign_amounts(self, month: str, strategy: str,
+                            lookback: int = 3) -> dict[str, int]:
+        """Compute a per-category TARGET assignment for ``month`` by strategy.
+
+        Returns ``{category_id: desired_total_assigned_for_month}``. The caller
+        (or :meth:`auto_assign`) is responsible for applying these through the
+        RTA guard. Strategies:
+
+        * ``underfunded``        — fill each category to its target's needed
+                                   amount this month (uses bud-bjl targets).
+        * ``assigned_last_month``— repeat last month's assignment.
+        * ``average_assigned``   — trailing ``lookback``-month average of
+                                   assignments.
+        * ``average_spent``      — trailing ``lookback``-month average of spend
+                                   magnitude (outflows).
+
+        Only categories with a positive desired amount are returned. The desired
+        amount is the ABSOLUTE assignment for the month (not a delta).
         """
-        return True
+        bid = self.budget_id
+        result: dict[str, int] = {}
+
+        if strategy == "underfunded":
+            state = self.get_state(month)
+            for c in state.categories:
+                # underfunded already nets out what's assigned this month, so the
+                # desired absolute assignment is current assigned + underfunded.
+                if c.underfunded > 0:
+                    result[c.id] = c.assigned + c.underfunded
+            return result
+
+        if strategy == "assigned_last_month":
+            prev = self._prev_month(month, 1)
+            for cid, amt in self.db.assigned_in_month(bid, prev).items():
+                if amt > 0:
+                    result[cid] = amt
+            return result
+
+        if strategy in ("average_assigned", "average_spent"):
+            n = max(1, lookback)
+            totals: dict[str, int] = {}
+            for k in range(1, n + 1):
+                m = self._prev_month(month, k)
+                if strategy == "average_assigned":
+                    data = self.db.assigned_in_month(bid, m)
+                    for cid, amt in data.items():
+                        totals[cid] = totals.get(cid, 0) + amt
+                else:  # average_spent: spend magnitude (negative activity -> positive)
+                    data = self.db.activity_in_month(bid, m)
+                    for cid, amt in data.items():
+                        if amt < 0:
+                            totals[cid] = totals.get(cid, 0) + (-amt)
+            for cid, total in totals.items():
+                avg = total // n
+                if avg > 0:
+                    result[cid] = avg
+            return result
+
+        raise ValueError(f"Unknown auto-assign strategy: {strategy!r}")
+
+    def auto_assign(self, month: str, strategy: str,
+                    lookback: int = 3) -> dict[str, int]:
+        """Apply :meth:`auto_assign_amounts`, respecting the RTA guard.
+
+        Iterates categories by descending desired delta and assigns as much as
+        possible. When Ready to Assign runs out, remaining categories that would
+        increase their assignment are partially funded (up to the remaining RTA)
+        or skipped. Lowering an existing assignment is never done — auto-assign
+        only adds money. Returns ``{category_id: amount_actually_assigned}`` for
+        the categories it changed.
+        """
+        desired = self.auto_assign_amounts(month, strategy, lookback)
+        applied: dict[str, int] = {}
+        assigned_now = self.db.assigned_in_month(self.budget_id, month)
+        # RTA is one cash pool and we only ever ADD money into `month`, so each
+        # assign() reduces Ready to Assign by exactly the granted delta. Track it
+        # locally and seed once, rather than recomputing the (expensive,
+        # multi-month) get_state on every funded category. assign()'s own RTA
+        # guard still backstops correctness.
+        rta = self.get_state(month).ready_to_assign
+        # Sort by largest increase first so the biggest needs get funded.
+        for cid, target in sorted(
+            desired.items(),
+            key=lambda kv: kv[1] - assigned_now.get(kv[0], 0),
+            reverse=True,
+        ):
+            if rta <= 0:
+                break
+            current = assigned_now.get(cid, 0)
+            if target <= current:
+                continue  # never lower an assignment
+            delta = target - current
+            grant = min(delta, rta)
+            new_amount = current + grant
+            self.assign(cid, new_amount, month)
+            applied[cid] = new_amount
+            rta -= grant
+        return applied
 
     # --- reads --------------------------------------------------------
     def _months_with_data(self, through_month: str) -> list[str]:
@@ -181,6 +286,33 @@ class BudgetEngine:
             months.append(through_month)
         return sorted(months)
 
+    def _payment_activity(self, month: str, pay_by_account: dict[str, str]) -> dict[str, int]:
+        """Synthetic inflow for each credit-card payment category in ``month``.
+
+        When you spend on a credit card, that purchase's money (already budgeted
+        in the spending category) is owed to the card; YNAB moves it into the
+        card's *payment* category so it is set aside to pay the bill. We model
+        this as a positive activity on the payment category equal to the
+        magnitude of categorized spending on that card. (Inflows/refunds on the
+        card net it back down.)
+
+        ``pay_by_account`` is the precomputed ``{account_id: payment_category_id}``
+        map (fetched once per get_state, not per month) to avoid an N+1 lookup.
+        Returns ``{payment_category_id: +credit_spend_magnitude}``. Empty when
+        there are no credit accounts / payment categories.
+        """
+        by_account = self.db.credit_activity_in_month(self.budget_id, month)  # acct -> net
+        if not by_account:
+            return {}
+        result: dict[str, int] = {}
+        for acct_id, net in by_account.items():
+            pay_id = pay_by_account.get(acct_id)
+            if pay_id is None:
+                continue
+            # net is negative for spending; the payment need grows by -net.
+            result[pay_id] = result.get(pay_id, 0) - net
+        return result
+
     def get_state(self, month: Optional[str] = None) -> BudgetState:
         month = month or current_month()
         bid = self.budget_id
@@ -188,16 +320,36 @@ class BudgetEngine:
         assigned_now = self.db.assigned_in_month(bid, month)
         activity_now = self.db.activity_in_month(bid, month)
 
+        # Categories whose spending lands on a credit card route into card debt
+        # rather than cash overspend; payment categories are funded with cash.
+        # The account -> payment-category map is static across months, so fetch
+        # it once here rather than per-month inside the walk below.
+        pay_by_account = self.db.payment_categories_by_account(bid)
+        has_credit = bool(pay_by_account)
+
         # Walk every month up to and including the requested one, applying the
         # YNAB carry-in floor per category and accumulating the cash overspend
         # absorbed at each *prior* month boundary (which docks this month's RTA).
         months = self._months_with_data(month)
         available: dict[str, int] = {}        # category -> rolling available
         prior_cash_overspend = 0              # absorbed at boundaries before `month`
+        payment_now: dict[str, int] = {}      # payment-cat synthetic activity (this month)
         for m in months:
             assigned_m = self.db.assigned_in_month(bid, m)
-            activity_m = self.db.activity_in_month(bid, m)
+            activity_m = dict(self.db.activity_in_month(bid, m))
+            # Per-category portion of this month's spend that hit a credit card
+            # (negative). This part of any overspend becomes debt, not an RTA dock.
+            credit_m = (
+                self.db.credit_activity_by_category_in_month(bid, m)
+                if has_credit else {}
+            )
+            # Fold credit spending into each card's payment category as a
+            # positive inflow (money set aside to pay the card).
+            pay_m = self._payment_activity(m, pay_by_account) if has_credit else {}
+            for pid, amt in pay_m.items():
+                activity_m[pid] = activity_m.get(pid, 0) + amt
             if m == month:
+                payment_now = pay_m
                 # Current month: floor only the carry-in; current overspend is
                 # allowed to show negative.
                 touched = set(available) | set(assigned_m) | set(activity_m)
@@ -217,23 +369,65 @@ class BudgetEngine:
                     + assigned_m.get(cid, 0)
                     + activity_m.get(cid, 0)
                 )
-                if end < 0 and self._overspend_is_cash(cid):
-                    prior_cash_overspend += -end
+                if end < 0:
+                    overspend = -end
+                    # Split overspend into the credit part (became debt — does
+                    # NOT dock RTA) and the cash part (docks RTA). credit_m[cid]
+                    # is negative for spending; its magnitude caps the
+                    # credit-absorbed amount. Clamp into [0, overspend]: when
+                    # card refunds exceed card spend credit_m[cid] is POSITIVE,
+                    # and without the max(0, …) credit_part would go negative and
+                    # inflate cash_part past the real overspend — silently
+                    # destroying budgetable Ready to Assign.
+                    credit_part = max(0, min(overspend, -credit_m.get(cid, 0)))
+                    cash_part = overspend - credit_part
+                    if cash_part > 0:
+                        prior_cash_overspend += cash_part
                     available[cid] = 0
                 else:
                     available[cid] = end
 
+        # Targets, keyed by category id.
+        targets = self.db.get_category_targets(bid)
+        # Carry-in available per category (floored at 0) is what was rolling
+        # before this month's assignment landed; needed for refill targets. For
+        # payment categories `available` was built from activity WITH the
+        # synthetic payment inflow folded in (payment_now), so subtract that too
+        # — otherwise this month's set-aside leaks into the supposed pre-month
+        # carry-in and under-reports a refill target's need.
+        carryin = {cid: max(0, available.get(cid, 0) - assigned_now.get(cid, 0)
+                            - activity_now.get(cid, 0) - payment_now.get(cid, 0))
+                   for cid in available}
+
         categories = []
         for c in self.db.get_categories(bid, include_hidden=False):
             cid = c["id"]
-            categories.append(CategoryState(
+            is_payment = c["payment_account_id"] is not None
+            cs = CategoryState(
                 id=cid,
                 group=c["category_group_name"] or "",
                 name=c["name"],
                 assigned=assigned_now.get(cid, 0),
-                activity=activity_now.get(cid, 0),
+                # Payment categories surface the card's spend as their activity.
+                activity=activity_now.get(cid, 0) + (
+                    payment_now.get(cid, 0) if is_payment else 0
+                ),
                 available=available.get(cid, 0),
-            ))
+                is_payment=is_payment,
+            )
+            t_row = targets.get(cid)
+            if t_row is not None:
+                target = Target.from_row(t_row)
+                cs.target_amount = target.amount
+                cs.target_cadence = target.cadence
+                cs.target_mode = target.mode
+                cs.target_needed = monthly_need(target, month)
+                cs.underfunded = underfunded(
+                    target, month,
+                    assigned=cs.assigned,
+                    available_carryin=carryin.get(cid, 0),
+                )
+            categories.append(cs)
 
         income_total = self.db.income_total(bid, month)
         # RTA draws from one pool of cash, so EVERY assignment (including ones

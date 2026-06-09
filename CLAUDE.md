@@ -62,7 +62,9 @@ cd frontend && npm install && npm run build && cd ..
 
 # Run the whole app (one process, opens browser at http://127.0.0.1:8000)
 uv run bud                                # == uv run python -m backend.launch
-# env overrides: BUD_PORT (default 8000), BUD_NO_BROWSER=1
+# env overrides: BUD_HOST (default 127.0.0.1), BUD_PORT (default 8000), BUD_NO_BROWSER=1
+# BUD_HOST=0.0.0.0 binds all interfaces / exposes on the LAN — BUD has NO auth,
+# so only do that on a trusted network or behind an auth/TLS reverse proxy.
 
 # Dev mode (hot reload, two processes)
 uv run python -m uvicorn backend.main:app --reload --port 8000   # terminal 1

@@ -4,16 +4,25 @@ import userEvent from '@testing-library/user-event'
 
 import EnvelopeGrid from './EnvelopeGrid'
 
-// Mock both data hooks so nothing hits the network.
+// Mock the data hooks so nothing hits the network.
 vi.mock('../../lib/queries', () => ({
   useBudget: vi.fn(),
   useAssign: vi.fn(),
+  useSetCategoryTarget: vi.fn(),
+  useDeleteCategoryTarget: vi.fn(),
 }))
 
-import { useBudget, useAssign } from '../../lib/queries'
+import {
+  useBudget,
+  useAssign,
+  useSetCategoryTarget,
+  useDeleteCategoryTarget,
+} from '../../lib/queries'
 
 const mockedUseBudget = vi.mocked(useBudget)
 const mockedUseAssign = vi.mocked(useAssign)
+const mockedUseSetCategoryTarget = vi.mocked(useSetCategoryTarget)
+const mockedUseDeleteCategoryTarget = vi.mocked(useDeleteCategoryTarget)
 
 const sampleBudget = {
   month: '2026-06-01',
@@ -42,10 +51,14 @@ const sampleBudget = {
 }
 
 let mutate: ReturnType<typeof vi.fn>
+let setTargetMutate: ReturnType<typeof vi.fn>
+let deleteTargetMutate: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
   mutate = vi.fn()
+  setTargetMutate = vi.fn()
+  deleteTargetMutate = vi.fn()
   mockedUseBudget.mockReturnValue({
     data: sampleBudget,
     isLoading: false,
@@ -56,6 +69,14 @@ beforeEach(() => {
     mutateAsync: vi.fn().mockResolvedValue({}),
     isPending: false,
   } as unknown as ReturnType<typeof useAssign>)
+  mockedUseSetCategoryTarget.mockReturnValue({
+    mutate: setTargetMutate,
+    isPending: false,
+  } as unknown as ReturnType<typeof useSetCategoryTarget>)
+  mockedUseDeleteCategoryTarget.mockReturnValue({
+    mutate: deleteTargetMutate,
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteCategoryTarget>)
 })
 
 describe('EnvelopeGrid', () => {
@@ -159,6 +180,199 @@ describe('EnvelopeGrid', () => {
     const grid = screen.getByTestId('envelope-grid')
     // Rent 100000 + Power 0 = 100000 → $100.00.
     expect(within(grid).getAllByText('$100.00').length).toBeGreaterThan(0)
+  })
+
+  it('shows the target amount and an underfunded badge', () => {
+    mockedUseBudget.mockReturnValue({
+      data: {
+        ...sampleBudget,
+        categories: [
+          {
+            id: 'c1',
+            group: 'Bills',
+            name: 'Rent',
+            assigned: 40000,
+            activity: 0,
+            available: 40000,
+            target_amount: 100000,
+            target_cadence: 'monthly',
+            target_mode: 'refill',
+            target_needed: 100000,
+            underfunded: 60000,
+            is_payment: false,
+          },
+          {
+            id: 'c2',
+            group: 'Bills',
+            name: 'Power',
+            assigned: 30000,
+            activity: 0,
+            available: 30000,
+            target_amount: 30000,
+            target_cadence: 'monthly',
+            target_mode: 'refill',
+            target_needed: 30000,
+            underfunded: 0,
+            is_payment: false,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBudget>)
+    render(<EnvelopeGrid />)
+    // Rent is underfunded by $60.00.
+    const badge = screen.getByTestId('underfunded-c1')
+    expect(badge).toHaveTextContent('$60.00 underfunded')
+    // Power's target is fully funded.
+    expect(screen.getByText('Funded ✓')).toBeInTheDocument()
+  })
+
+  it('shows "On track" (not "Funded ✓") for a non-monthly target whose envelope is not yet full', () => {
+    mockedUseBudget.mockReturnValue({
+      data: {
+        ...sampleBudget,
+        categories: [
+          {
+            id: 'c1',
+            group: 'Bills',
+            name: 'Insurance',
+            assigned: 0,
+            activity: 0,
+            available: 10000,
+            target_amount: 120000,
+            target_cadence: 'yearly',
+            target_mode: 'refill',
+            target_needed: 120000,
+            // Nothing owed this (non-anchor) month, but the envelope is not full.
+            underfunded: 0,
+            is_payment: false,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBudget>)
+    render(<EnvelopeGrid />)
+    expect(screen.getByText('On track')).toBeInTheDocument()
+    expect(screen.queryByText('Funded ✓')).not.toBeInTheDocument()
+  })
+
+  it('renders a Payment badge for credit-card payment categories', () => {
+    mockedUseBudget.mockReturnValue({
+      data: {
+        ...sampleBudget,
+        categories: [
+          {
+            id: 'cc1',
+            group: 'Credit Card Payments',
+            name: 'Visa',
+            assigned: 0,
+            activity: 0,
+            available: 0,
+            is_payment: true,
+          },
+          {
+            id: 'c2',
+            group: 'Bills',
+            name: 'Power',
+            assigned: 0,
+            activity: 0,
+            available: 0,
+            is_payment: false,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBudget>)
+    render(<EnvelopeGrid />)
+    expect(screen.getByTestId('payment-badge-cc1')).toHaveTextContent('Payment')
+    expect(screen.queryByTestId('payment-badge-c2')).not.toBeInTheDocument()
+  })
+
+  it('opens the target editor, saves a target with correct milliunits/cadence/mode, and clears it', async () => {
+    const user = userEvent.setup()
+    mockedUseBudget.mockReturnValue({
+      data: {
+        ...sampleBudget,
+        categories: [
+          {
+            id: 'c1',
+            group: 'Bills',
+            name: 'Rent',
+            assigned: 0,
+            activity: 0,
+            available: 0,
+            target_amount: 50000,
+            target_cadence: 'monthly',
+            target_mode: 'refill',
+            target_needed: 50000,
+            underfunded: 0,
+            is_payment: false,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBudget>)
+    render(<EnvelopeGrid />)
+
+    // Open the editor.
+    await user.click(screen.getByRole('button', { name: /edit target for rent/i }))
+    const editor = screen.getByRole('dialog', { name: /edit target for rent/i })
+
+    // Change the amount to $75 and cadence to yearly, mode to full.
+    const amountInput = within(editor).getByLabelText(/amount/i)
+    await user.clear(amountInput)
+    await user.type(amountInput, '75')
+    await user.selectOptions(within(editor).getByLabelText(/cadence/i), 'yearly')
+    await user.selectOptions(within(editor).getByLabelText(/mode/i), 'full')
+
+    await user.click(within(editor).getByRole('button', { name: /^save$/i }))
+
+    expect(setTargetMutate).toHaveBeenCalledTimes(1)
+    expect(setTargetMutate.mock.calls[0][0]).toEqual({
+      id: 'c1',
+      body: {
+        amount_milliunits: 75000,
+        cadence: 'yearly',
+        mode: 'full',
+      },
+    })
+
+    // Clear the target.
+    await user.click(within(editor).getByRole('button', { name: /clear target/i }))
+    expect(deleteTargetMutate).toHaveBeenCalledTimes(1)
+    expect(deleteTargetMutate.mock.calls[0][0]).toBe('c1')
+  })
+
+  it('includes every_n_months when the custom cadence is chosen', async () => {
+    const user = userEvent.setup()
+    render(<EnvelopeGrid />)
+
+    // Rent (base sample) has no target → "Set target".
+    await user.click(
+      screen.getAllByRole('button', { name: /edit target for rent/i })[0],
+    )
+    const editor = screen.getByRole('dialog', { name: /edit target for rent/i })
+
+    await user.type(within(editor).getByLabelText(/amount/i), '100')
+    await user.selectOptions(within(editor).getByLabelText(/cadence/i), 'custom')
+    const everyN = within(editor).getByLabelText(/every n months/i)
+    await user.clear(everyN)
+    await user.type(everyN, '3')
+    await user.click(within(editor).getByRole('button', { name: /^save$/i }))
+
+    expect(setTargetMutate.mock.calls[0][0]).toEqual({
+      id: 'c1',
+      body: {
+        amount_milliunits: 100000,
+        cadence: 'custom',
+        mode: 'refill',
+        every_n_months: 3,
+      },
+    })
   })
 
   it('surfaces a blocked-assign (Ready-to-Assign exceeded) error inline', () => {

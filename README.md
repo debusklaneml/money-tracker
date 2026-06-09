@@ -76,6 +76,10 @@ uv run python -m backend.launch
 
 Environment variables:
 
+- `BUD_HOST` — interface to bind to (default `127.0.0.1`, loopback only).
+  Set `BUD_HOST=0.0.0.0` to bind all interfaces and reach BUD from other
+  devices on your LAN. **⚠️ BUD has no authentication.** Only expose it on a
+  trusted network or behind a reverse proxy that handles auth/TLS.
 - `BUD_PORT` — serve on a port other than `8000`.
 - `BUD_NO_BROWSER=1` — start the server without opening a browser.
 
@@ -154,6 +158,15 @@ cd frontend && npm run e2e
 > If `uv` is not installed, you can use the project virtualenv directly, e.g.
 > `.venv/bin/python -m pytest` and
 > `.venv/bin/python -m uvicorn backend.main:app --reload`.
+
+## Self-hosting & remote access
+
+Want to run BUD on a home server and reach it from your phone? See:
+
+- **[docs/self-hosting.md](docs/self-hosting.md)** — end-to-end runbook: headless
+  run, systemd/launchd service, reverse proxy, iPhone LAN access, and backups.
+- **[docs/access-control.md](docs/access-control.md)** — the security posture to
+  apply **before** exposing BUD on a network (it has no built-in auth).
 
 ## Data & Privacy
 

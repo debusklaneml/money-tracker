@@ -1,6 +1,7 @@
 import { NavLink, Link, Outlet } from 'react-router-dom'
 import { formatMoney } from '../lib/money'
 import { useBudget, useUncategorizedCount } from '../lib/queries'
+import MobileNav from './MobileNav'
 
 const NAV_SECTIONS = [
   { to: '/', label: 'Budget', end: true },
@@ -115,15 +116,18 @@ export default function AppShell() {
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-3">
-          {/* Mobile brand */}
-          <Link to="/" className="flex items-center gap-2 md:hidden">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-base font-black text-emerald-600">
-              $
-            </span>
-            <span className="text-lg font-extrabold tracking-tight text-slate-900">
-              BUD
-            </span>
-          </Link>
+          {/* Mobile brand + hamburger */}
+          <div className="flex items-center gap-2 md:hidden">
+            <MobileNav sections={NAV_SECTIONS} />
+            <Link to="/" className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-base font-black text-emerald-600">
+                $
+              </span>
+              <span className="text-lg font-extrabold tracking-tight text-slate-900">
+                BUD
+              </span>
+            </Link>
+          </div>
           <div className="hidden md:block" />
           <div className="flex items-center gap-3">
             <UncategorizedBadge />

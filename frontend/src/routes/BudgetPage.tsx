@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ReadyToAssignHeader from '../components/budget/ReadyToAssignHeader'
 import EnvelopeGrid from '../components/budget/EnvelopeGrid'
 import MoveMoneyPanel from '../components/budget/MoveMoneyPanel'
+import AutoAssignBar from '../components/budget/AutoAssignBar'
 
 /** First-of-month string (YYYY-MM-01) for the current calendar month. */
 function currentMonth(): string {
@@ -83,6 +84,7 @@ export default function BudgetPage() {
         </button>
       </div>
       <ReadyToAssignHeader month={month} />
+      <AutoAssignBar month={month} />
       <EnvelopeGrid month={month} />
       <MoveMoneyPanel
         open={moveOpen}

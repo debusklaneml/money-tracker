@@ -111,3 +111,58 @@ def delete_category(
     return schemas.MessageResponse(
         status="ok", message=f"Category {category_id!r} deleted"
     )
+
+
+# ---------------------------------------------------------------------------
+# Category targets (funding goals, bud-bjl)
+# ---------------------------------------------------------------------------
+def _to_target(row) -> schemas.Target:
+    return schemas.Target.model_validate(dict(row))
+
+
+@router.get("/categories/{category_id}/target", response_model=schemas.Target)
+def get_target(
+    category_id: str,
+    db: Database = Depends(get_db),
+    budget_id: str = Depends(get_budget_id),
+) -> schemas.Target:
+    """Get a category's funding target (404 if none set)."""
+    _get_or_404(db, category_id)
+    row = db.get_category_target(category_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No target set for category {category_id!r}",
+        )
+    return _to_target(row)
+
+
+@router.put("/categories/{category_id}/target", response_model=schemas.Target)
+def set_target(
+    category_id: str,
+    req: schemas.TargetRequest,
+    db: Database = Depends(get_db),
+    budget_id: str = Depends(get_budget_id),
+) -> schemas.Target:
+    """Create or replace a category's funding target."""
+    _get_or_404(db, category_id)
+    db.upsert_category_target(
+        budget_id, category_id, req.amount_milliunits, cadence=req.cadence,
+        mode=req.mode, every_n_months=req.every_n_months,
+        day_of_month=req.day_of_month, month_of_year=req.month_of_year,
+    )
+    return _to_target(db.get_category_target(category_id))
+
+
+@router.delete("/categories/{category_id}/target", response_model=schemas.MessageResponse)
+def delete_target(
+    category_id: str,
+    db: Database = Depends(get_db),
+    budget_id: str = Depends(get_budget_id),
+) -> schemas.MessageResponse:
+    """Remove a category's funding target."""
+    _get_or_404(db, category_id)
+    db.delete_category_target(category_id)
+    return schemas.MessageResponse(
+        status="ok", message=f"Target for {category_id!r} removed"
+    )
