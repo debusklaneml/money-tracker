@@ -129,8 +129,9 @@ export function useSettingsSummary() {
  *   delta = newAmount - oldAssigned
  *   category.assigned  := newAmount
  *   category.available += delta   (assigning more puts more in the envelope)
- *   ready_to_assign    -= delta   (assigning reduces money left to assign)
- *   assigned_total     += delta
+ *   ready_to_assign     -= delta   (assigning reduces money left to assign)
+ *   assigned_total      += delta   (the global cash pool)
+ *   assigned_this_month += delta   (this month's figure; the query is per-month)
  *
  * If the category id isn't present, the state is returned unchanged. The input
  * is never mutated — the categories array and the touched category object are
@@ -158,6 +159,7 @@ export function applyOptimisticAssign(
     ...state,
     ready_to_assign: state.ready_to_assign - delta,
     assigned_total: state.assigned_total + delta,
+    assigned_this_month: state.assigned_this_month + delta,
     categories,
   };
 }

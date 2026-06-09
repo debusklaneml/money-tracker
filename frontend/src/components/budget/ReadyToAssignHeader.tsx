@@ -35,7 +35,7 @@ function formatMonthLabel(month: string): string {
   return `${MONTHS[monthIndex]} ${year}`
 }
 
-type RtaState = 'to-assign' | 'all-assigned' | 'over-assigned'
+type RtaState = 'to-assign' | 'all-assigned' | 'over-assigned' | 'past-month'
 
 interface StateTreatment {
   state: RtaState
@@ -46,9 +46,30 @@ interface StateTreatment {
   amount: string
   /** State label (eyebrow) classes. */
   eyebrow: string
+  /** Optional explanatory note rendered under the amount. */
+  note?: string
 }
 
-function treatmentFor(rta: number): StateTreatment {
+/**
+ * Pick the visual treatment for the header.
+ *
+ * `isPastFunded` (bud-24v): when the viewed month is earlier than the furthest
+ * funded month, the cash-pool RTA is deflated by design (this month sees less
+ * income than the global assignments drawn from the pool). A negative value
+ * there is a display artifact, NOT a real over-assignment — so we use a neutral
+ * past-month treatment with context instead of the alarming rose "Over-assigned".
+ */
+function treatmentFor(rta: number, isPastFunded: boolean): StateTreatment {
+  if (isPastFunded) {
+    return {
+      state: 'past-month',
+      label: 'Past month',
+      card: 'bg-slate-50 ring-slate-200',
+      amount: 'text-slate-700',
+      eyebrow: 'text-slate-500',
+      note: 'Ready-to-Assign reflects one shared cash pool, so past months read low once later months are funded. This is not over-assignment.',
+    }
+  }
   if (rta > 0) {
     return {
       state: 'to-assign',
@@ -108,7 +129,7 @@ function HeaderSkeleton() {
 }
 
 function Loaded({ data }: { data: BudgetState }) {
-  const treatment = treatmentFor(data.ready_to_assign)
+  const treatment = treatmentFor(data.ready_to_assign, data.is_past_funded)
 
   return (
     <section
@@ -140,6 +161,14 @@ function Loaded({ data }: { data: BudgetState }) {
         >
           {formatMoney(data.ready_to_assign)}
         </p>
+        {treatment.note && (
+          <p
+            data-testid="rta-note"
+            className="mt-1 max-w-prose text-xs font-medium text-slate-500"
+          >
+            {treatment.note}
+          </p>
+        )}
       </div>
 
       <div className="mt-5 flex flex-wrap gap-8 border-t border-slate-200/70 pt-4">
@@ -148,7 +177,11 @@ function Loaded({ data }: { data: BudgetState }) {
           value={formatMoney(data.income_month)}
         />
         <SecondaryFigure
-          label="Assigned"
+          label="Assigned this month"
+          value={formatMoney(data.assigned_this_month)}
+        />
+        <SecondaryFigure
+          label="Assigned (all months)"
           value={formatMoney(data.assigned_total)}
         />
       </div>

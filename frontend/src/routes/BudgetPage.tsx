@@ -37,6 +37,7 @@ export default function BudgetPage() {
   const [moveOpen, setMoveOpen] = useState(false)
   const [month, setMonth] = useState<string>(currentMonth)
   const isFuture = month > currentMonth()
+  const isPast = month < currentMonth()
 
   return (
     <section className="p-6 space-y-6">
@@ -72,6 +73,11 @@ export default function BudgetPage() {
           {isFuture && (
             <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">
               Future month
+            </span>
+          )}
+          {isPast && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+              Past month
             </span>
           )}
         </div>

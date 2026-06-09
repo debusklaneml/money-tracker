@@ -14,6 +14,8 @@ function seedState(): BudgetState {
     income_month: 500_000,
     income_total: 1_000_000,
     assigned_total: 300_000,
+    assigned_this_month: 130_000,
+    is_past_funded: false,
     categories: [
       {
         id: 'cat-a',

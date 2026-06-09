@@ -26,7 +26,12 @@ export interface BudgetState {
   ready_to_assign: number;
   income_month: number;
   income_total: number;
+  /** Assigned across ALL months (the cash pool backing RTA). */
   assigned_total: number;
+  /** Assigned in THIS viewed month only. */
+  assigned_this_month: number;
+  /** True when the viewed month precedes the furthest funded month. */
+  is_past_funded: boolean;
   categories: CategoryState[];
 }
 
