@@ -49,6 +49,51 @@ class CategoryState(BaseModel):
     available: int = Field(
         ..., description="Milliunits available (rolling balance through this month)."
     )
+    target_amount: Optional[int] = Field(
+        None, description="Funding-target amount in milliunits, if a target is set."
+    )
+    target_cadence: Optional[str] = Field(
+        None, description="Target cadence: weekly | monthly | yearly | custom."
+    )
+    target_mode: Optional[str] = Field(
+        None, description="Target mode: 'full' (repeat) or 'refill' (top up)."
+    )
+    target_needed: int = Field(
+        0, description="Milliunits the target wants set aside this month (cadence only)."
+    )
+    underfunded: int = Field(
+        0, description="Milliunits still missing this month after assigned/carry-in."
+    )
+    is_payment: bool = Field(
+        False, description="Whether this is a credit-card payment category."
+    )
+
+
+class TargetRequest(BaseModel):
+    """Create/replace a category funding target (bud-bjl)."""
+
+    amount_milliunits: int = Field(..., description="Target amount in milliunits.")
+    cadence: str = Field(
+        "monthly", description="weekly | monthly | yearly | custom (every-N-months)."
+    )
+    mode: str = Field(
+        "refill", description="'full' (repeat full amount) or 'refill' (top up to amount)."
+    )
+    every_n_months: int = Field(
+        1, description="For cadence='custom': fund 1/N of the amount per month."
+    )
+    day_of_month: Optional[int] = Field(
+        None, description="Optional day-of-month anchor (1-31)."
+    )
+    month_of_year: Optional[int] = Field(
+        None, description="Optional month anchor for yearly sinking funds (1-12)."
+    )
+
+
+class Target(TargetRequest):
+    """A stored category target (mirrors the ``category_targets`` row)."""
+
+    category_id: str = Field(..., description="Category the target belongs to.")
 
 
 class BudgetState(BaseModel):
@@ -144,6 +189,24 @@ class AssignRequest(BaseModel):
     amount: int = Field(..., description="Milliunits to set as the month's assignment.")
     month: Optional[str] = Field(
         None, description="Budget month YYYY-MM-01; defaults to the current month."
+    )
+
+
+class AutoAssignRequest(BaseModel):
+    """Auto-fill a month's assignments by strategy (BudgetEngine.auto_assign, bud-6hv)."""
+
+    strategy: str = Field(
+        ...,
+        description=(
+            "One of: underfunded | assigned_last_month | average_assigned | "
+            "average_spent."
+        ),
+    )
+    month: Optional[str] = Field(
+        None, description="Budget month YYYY-MM-01; defaults to the current month."
+    )
+    lookback: int = Field(
+        3, description="Trailing-month window for the average_* strategies."
     )
 
 

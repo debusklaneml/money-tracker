@@ -161,6 +161,52 @@ describe('EnvelopeGrid', () => {
     expect(within(grid).getAllByText('$100.00').length).toBeGreaterThan(0)
   })
 
+  it('shows the target amount and an underfunded badge', () => {
+    mockedUseBudget.mockReturnValue({
+      data: {
+        ...sampleBudget,
+        categories: [
+          {
+            id: 'c1',
+            group: 'Bills',
+            name: 'Rent',
+            assigned: 40000,
+            activity: 0,
+            available: 40000,
+            target_amount: 100000,
+            target_cadence: 'monthly',
+            target_mode: 'refill',
+            target_needed: 100000,
+            underfunded: 60000,
+            is_payment: false,
+          },
+          {
+            id: 'c2',
+            group: 'Bills',
+            name: 'Power',
+            assigned: 30000,
+            activity: 0,
+            available: 30000,
+            target_amount: 30000,
+            target_cadence: 'monthly',
+            target_mode: 'refill',
+            target_needed: 30000,
+            underfunded: 0,
+            is_payment: false,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBudget>)
+    render(<EnvelopeGrid />)
+    // Rent is underfunded by $60.00.
+    const badge = screen.getByTestId('underfunded-c1')
+    expect(badge).toHaveTextContent('$60.00 underfunded')
+    // Power's target is fully funded.
+    expect(screen.getByText('Funded ✓')).toBeInTheDocument()
+  })
+
   it('surfaces a blocked-assign (Ready-to-Assign exceeded) error inline', () => {
     mockedUseAssign.mockReturnValue({
       mutate,

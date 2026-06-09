@@ -127,6 +127,38 @@ function AssignedCell({
   )
 }
 
+/**
+ * Target cell — shows the funding target amount (if any) and an "underfunded"
+ * badge when this month still needs money to hit the target. A green check
+ * shows when the target is fully funded.
+ */
+function TargetCell({ category }: { category: CategoryState }) {
+  if (category.target_amount == null) {
+    return <span className="text-xs text-slate-300">—</span>
+  }
+  const under = category.underfunded
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span className="text-xs tabular-nums text-slate-500">
+        {formatMoney(category.target_amount)}
+        {category.target_cadence && category.target_cadence !== 'monthly'
+          ? ` /${category.target_cadence}`
+          : ''}
+      </span>
+      {under > 0 ? (
+        <span
+          data-testid={`underfunded-${category.id}`}
+          className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
+        >
+          {formatMoney(under)} underfunded
+        </span>
+      ) : (
+        <span className="text-xs font-semibold text-emerald-600">Funded ✓</span>
+      )}
+    </div>
+  )
+}
+
 export default function EnvelopeGrid({ month }: EnvelopeGridProps) {
   const { data, isLoading, isError } = useBudget(month)
 
@@ -176,6 +208,11 @@ export default function EnvelopeGrid({ month }: EnvelopeGridProps) {
             </span>
           )
         },
+      }),
+      columnHelper.display({
+        id: 'target',
+        header: 'Target',
+        cell: (info) => <TargetCell category={info.row.original} />,
       }),
     ],
     [month],
@@ -275,7 +312,6 @@ export default function EnvelopeGrid({ month }: EnvelopeGridProps) {
             <tr className="bg-slate-50">
               <th
                 scope="colgroup"
-                colSpan={columnCount - 1}
                 className="px-3 py-2 text-left text-sm font-semibold text-slate-700"
               >
                 {group.name}
@@ -283,6 +319,8 @@ export default function EnvelopeGrid({ month }: EnvelopeGridProps) {
               <td className="px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-500">
                 {formatMoney(subtotal)}
               </td>
+              {/* Empty cells under Activity / Available / Target. */}
+              <td colSpan={columnCount - 2} />
             </tr>
 
             {group.rows.map((row) => (

@@ -13,6 +13,12 @@ export interface CategoryState {
   assigned: number;
   activity: number;
   available: number;
+  target_amount: number | null;
+  target_cadence: string | null;
+  target_mode: string | null;
+  target_needed: number;
+  underfunded: number;
+  is_payment: boolean;
 }
 
 export interface BudgetState {
@@ -204,9 +210,34 @@ export interface MoveRequest {
   month?: string | null;
 }
 
+export type AutoAssignStrategy =
+  | 'underfunded'
+  | 'assigned_last_month'
+  | 'average_assigned'
+  | 'average_spent';
+
+export interface AutoAssignRequest {
+  strategy: AutoAssignStrategy;
+  month?: string | null;
+  lookback?: number;
+}
+
 export interface CategoryCreateRequest {
   group: string;
   name: string;
+}
+
+export interface TargetRequest {
+  amount_milliunits: number;
+  cadence: string;
+  mode: string;
+  every_n_months?: number;
+  day_of_month?: number | null;
+  month_of_year?: number | null;
+}
+
+export interface Target extends TargetRequest {
+  category_id: string;
 }
 
 export interface CategoryUpdateRequest {

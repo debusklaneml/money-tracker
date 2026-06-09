@@ -7,6 +7,7 @@
 import type {
   Account,
   AssignRequest,
+  AutoAssignRequest,
   Alert,
   BudgetState,
   BulkCategorizeRequest,
@@ -24,6 +25,8 @@ import type {
   RuleCreateRequest,
   SettingsSummary,
   SpendingByCategory,
+  Target,
+  TargetRequest,
   Transaction,
   TransactionCategorizeRequest,
   TransactionQueryParams,
@@ -125,6 +128,12 @@ export const api = {
       body: jsonBody(body),
     }),
 
+  autoAssign: (body: AutoAssignRequest): Promise<BudgetState> =>
+    request<BudgetState>('/api/budget/auto-assign', {
+      method: 'POST',
+      body: jsonBody(body),
+    }),
+
   // --- Categories ---------------------------------------------------------
   getCategories: (): Promise<Category[]> =>
     request<Category[]>('/api/categories'),
@@ -149,6 +158,18 @@ export const api = {
 
   deleteCategory: (id: string): Promise<MessageResponse> =>
     request<MessageResponse>(`/api/categories/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  // --- Category targets ---------------------------------------------------
+  setCategoryTarget: (id: string, body: TargetRequest): Promise<Target> =>
+    request<Target>(`/api/categories/${encodeURIComponent(id)}/target`, {
+      method: 'PUT',
+      body: jsonBody(body),
+    }),
+
+  deleteCategoryTarget: (id: string): Promise<MessageResponse> =>
+    request<MessageResponse>(`/api/categories/${encodeURIComponent(id)}/target`, {
       method: 'DELETE',
     }),
 

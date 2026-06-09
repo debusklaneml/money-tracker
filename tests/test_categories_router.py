@@ -51,11 +51,12 @@ def client():
 
 
 def test_category_lifecycle(client):
-    # List seeded defaults (16 of them, see DEFAULT_CATEGORIES).
+    # List seeded defaults (see DEFAULT_CATEGORIES).
     resp = client.get("/api/categories")
     assert resp.status_code == 200
     defaults = resp.json()
-    assert len(defaults) == 16
+    from src.cache.database import DEFAULT_CATEGORIES
+    assert len(defaults) == len(DEFAULT_CATEGORIES)
     sample = defaults[0]
     assert "id" in sample and "name" in sample
     assert sample["hidden"] is False  # int 0 -> bool coercion
@@ -106,6 +107,45 @@ def test_category_lifecycle(client):
         c["id"] != cat_id
         for c in client.get("/api/categories?include_hidden=true").json()
     )
+
+
+def test_category_target_lifecycle(client):
+    cats = client.get("/api/categories").json()
+    cat_id = cats[0]["id"]
+
+    # No target initially.
+    assert client.get(f"/api/categories/{cat_id}/target").status_code == 404
+
+    # Set a monthly refill target.
+    resp = client.put(
+        f"/api/categories/{cat_id}/target",
+        json={"amount_milliunits": 50_000, "cadence": "monthly", "mode": "refill"},
+    )
+    assert resp.status_code == 200, resp.text
+    t = resp.json()
+    assert t["amount_milliunits"] == 50_000
+    assert t["cadence"] == "monthly"
+    assert t["mode"] == "refill"
+    assert t["category_id"] == cat_id
+
+    # Read it back.
+    got = client.get(f"/api/categories/{cat_id}/target").json()
+    assert got["amount_milliunits"] == 50_000
+
+    # Replace with a custom every-3-months full target.
+    resp = client.put(
+        f"/api/categories/{cat_id}/target",
+        json={
+            "amount_milliunits": 90_000, "cadence": "custom",
+            "mode": "full", "every_n_months": 3,
+        },
+    )
+    assert resp.json()["every_n_months"] == 3
+    assert resp.json()["mode"] == "full"
+
+    # Delete it.
+    assert client.delete(f"/api/categories/{cat_id}/target").status_code == 200
+    assert client.get(f"/api/categories/{cat_id}/target").status_code == 404
 
 
 def test_404_on_missing_category(client):

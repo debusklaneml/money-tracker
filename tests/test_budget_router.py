@@ -149,6 +149,70 @@ def test_assign_over_rta_returns_400():
             os.remove(db_path)
 
 
+def test_credit_account_payment_category_auto_appears():
+    """GET /budget auto-creates a payment category for a credit account, and
+    credit overspend does not dock RTA."""
+    client, db, db_path = _build_client_and_db()
+    try:
+        from src.cache.database import LOCAL_BUDGET_ID
+
+        # A credit account with no payment category yet.
+        db.upsert_account("cc1", LOCAL_BUDGET_ID, "Amex", "creditCard",
+                          on_budget=True, closed=False, balance=0,
+                          cleared_balance=0, uncleared_balance=0)
+
+        state = client.get("/api/budget").json()
+        names = {c["name"]: c for c in state["categories"]}
+        assert "Amex" in names  # payment category auto-created
+        assert names["Amex"]["is_payment"] is True
+    finally:
+        os.environ.pop("BUD_DB_PATH", None)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
+def test_auto_assign_underfunded_endpoint():
+    """POST /budget/auto-assign with the underfunded strategy fills targets."""
+    client, db, db_path = _build_client_and_db()
+    try:
+        from src.cache.database import LOCAL_BUDGET_ID
+
+        cats = client.get("/api/budget").json()["categories"]
+        c0 = cats[0]["id"]
+        db.upsert_category_target(LOCAL_BUDGET_ID, c0, 50_000,
+                                  cadence="monthly", mode="refill")
+        # Seed enough income to cover c0's target plus the default seeded
+        # non-monthly targets that auto-assign will also fund.
+        _seed_income(db, 1_000_000, "2026-06-01")
+
+        resp = client.post(
+            "/api/budget/auto-assign",
+            json={"strategy": "underfunded", "month": "2026-06-01"},
+        )
+        assert resp.status_code == 200, resp.text
+        state = resp.json()
+        target_cat = next(c for c in state["categories"] if c["id"] == c0)
+        assert target_cat["assigned"] == 50_000
+        assert target_cat["underfunded"] == 0
+    finally:
+        os.environ.pop("BUD_DB_PATH", None)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
+def test_auto_assign_unknown_strategy_400():
+    client, db, db_path = _build_client_and_db()
+    try:
+        resp = client.post(
+            "/api/budget/auto-assign", json={"strategy": "bogus"}
+        )
+        assert resp.status_code == 400, resp.text
+    finally:
+        os.environ.pop("BUD_DB_PATH", None)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
 def test_assign_into_future_month_drops_current_rta():
     """Assigning into a future month removes the money from the current month's
     RTA, and the furthest assigned month shows the true remaining RTA."""

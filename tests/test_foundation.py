@@ -76,19 +76,19 @@ def test_income_is_uncategorized_inflow(db):
 def test_rule_autocategorizes(db):
     svc = ImportService(db)
     svc.import_file("june.qfx", OFX.encode())
-    rid = db.add_rule(LOCAL_BUDGET_ID, "NETFLIX", _cat(db, "Subscriptions"))
+    rid = db.add_rule(LOCAL_BUDGET_ID, "NETFLIX", _cat(db, "Annual Subscriptions"))
     assert svc.apply_rule_to_existing(rid) == 1
 
 
 def test_engine_rta_rollover_and_overspend(db):
     svc = ImportService(db)
     svc.import_file("june.qfx", OFX.encode())
-    groceries, subs = _cat(db, "Groceries"), _cat(db, "Subscriptions")
+    groceries, subs = _cat(db, "Groceries"), _cat(db, "Annual Subscriptions")
     for t in db.get_uncategorized_transactions(LOCAL_BUDGET_ID):
         if t["payee_name"] in ("WHOLE FOODS", "TRADER JOES"):
             db.set_transaction_category(t["id"], groceries, "Groceries")
         elif t["payee_name"] == "NETFLIX":
-            db.set_transaction_category(t["id"], subs, "Subscriptions")
+            db.set_transaction_category(t["id"], subs, "Annual Subscriptions")
 
     eng = BudgetEngine(db)
     eng.assign(groceries, 300_000, month="2026-06-01")
@@ -115,10 +115,10 @@ def test_engine_rta_rollover_and_overspend(db):
 def test_move_money_covers_overspend(db):
     svc = ImportService(db)
     svc.import_file("june.qfx", OFX.encode())
-    groceries, subs = _cat(db, "Groceries"), _cat(db, "Subscriptions")
+    groceries, subs = _cat(db, "Groceries"), _cat(db, "Annual Subscriptions")
     for t in db.get_uncategorized_transactions(LOCAL_BUDGET_ID):
         if t["payee_name"] == "NETFLIX":
-            db.set_transaction_category(t["id"], subs, "Subscriptions")
+            db.set_transaction_category(t["id"], subs, "Annual Subscriptions")
     eng = BudgetEngine(db)
     eng.assign(groceries, 300_000, month="2026-07-01")
     eng.move(groceries, subs, 20_000, month="2026-07-01")
@@ -166,7 +166,7 @@ def test_rta_guard_allows_reassign_within_existing_assignment(db):
 def test_move_does_not_trip_rta_guard(db):
     """A move is RTA-neutral and must work even when RTA is fully exhausted."""
     _income(db, 100_000, "2026-06-01")
-    groceries, gas = _cat(db, "Groceries"), _cat(db, "Gas")
+    groceries, gas = _cat(db, "Groceries"), _cat(db, "Gas / Fuel")
     eng = BudgetEngine(db)
     eng.assign(groceries, 100_000, month="2026-06-01")  # RTA == 0
     # Moving from groceries to gas would briefly look like "assigning" to gas,
@@ -229,7 +229,7 @@ def test_assign_into_future_month_and_furthest_month_rta(db):
     furthest assigned month reports the true remaining RTA; you can assign across
     several future months bounded only by cash."""
     _income(db, 300_000, "2026-06-01")
-    groceries, gas, rent = _cat(db, "Groceries"), _cat(db, "Gas"), _cat(db, "Rent / Mortgage")
+    groceries, gas, rent = _cat(db, "Groceries"), _cat(db, "Gas / Fuel"), _cat(db, "Rent / Mortgage")
     eng = BudgetEngine(db)
 
     eng.assign(groceries, 50_000, month="2026-06-01")   # current month
