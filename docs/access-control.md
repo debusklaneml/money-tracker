@@ -36,29 +36,40 @@ untrusted or shared network that is equivalent to publishing your finances.
 ## Recommended setup — Caddy reverse proxy
 
 [Caddy](https://caddyserver.com/) is the least-effort option: one binary, a
-three-line config, automatic local HTTPS.
+three-line config, automatic local HTTPS. A ready-to-use template ships in the
+repo as [`Caddyfile.example`](../Caddyfile.example).
 
-1. Generate a bcrypt-hashed password:
+1. Install Caddy (macOS): `brew install caddy`.
+
+2. Copy the template — the real `Caddyfile` is gitignored so your password hash
+   never gets committed:
+
+   ```bash
+   cp Caddyfile.example Caddyfile
+   ```
+
+3. Generate a bcrypt-hashed password, then paste the hash into your `Caddyfile`
+   (replace `REPLACE_WITH_HASH`) and set the username:
 
    ```bash
    caddy hash-password --plaintext 'choose-a-strong-password'
    # → $2a$14$....   (copy the whole hash)
    ```
 
-2. `Caddyfile` (BUD stays on loopback `:8000`; Caddy listens on `:8443`):
+   The template (BUD stays on loopback `:8000`; Caddy listens on `:8443`):
 
    ```caddy
    # Reach BUD at https://<host-lan-ip>:8443 from your phone.
    :8443 {
        tls internal                # self-signed local CA (or use a real cert)
        basic_auth {                # Caddy < 2.8 spells this `basicauth`
-           you $2a$14$REPLACE_WITH_THE_HASH_FROM_STEP_1
+           les REPLACE_WITH_HASH
        }
        reverse_proxy 127.0.0.1:8000
    }
    ```
 
-3. Run BUD on loopback (unchanged default) and start Caddy:
+4. Run BUD on loopback (unchanged default) and start Caddy:
 
    ```bash
    BUD_NO_BROWSER=1 uv run bud        # binds 127.0.0.1:8000

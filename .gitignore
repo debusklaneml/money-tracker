@@ -37,3 +37,6 @@ frontend/dist
 frontend/playwright-report
 frontend/test-results
 frontend/.playwright
+
+# Caddy reverse proxy — real config holds a password hash, keep it local
+/Caddyfile

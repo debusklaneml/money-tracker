@@ -1,0 +1,31 @@
+# BUD reverse proxy — HTTPS + basic auth in front of the loopback-only app.
+# This is the access-control posture from docs/access-control.md (option b).
+#
+# SETUP (one time):
+#   1. cp Caddyfile.example Caddyfile          # the real Caddyfile is gitignored
+#   2. caddy hash-password --plaintext 'your-strong-password'
+#        -> copy the whole $2a$14$... hash
+#   3. Paste that hash after the username below (replace REPLACE_WITH_HASH).
+#   4. Pick your login username (default below is "les").
+#
+# RUN:
+#   BUD_NO_BROWSER=1 uv run bud      # BUD stays on 127.0.0.1:8000 (do NOT set BUD_HOST)
+#   caddy run --config ./Caddyfile   # or `caddy start` to daemonize
+#
+# REACH IT from your iPhone (same Wi-Fi):
+#   https://192.168.1.45:8443
+#   Accept the local-CA warning, or run `caddy trust` on devices you control to
+#   install Caddy's root cert and get a clean padlock.
+
+:8443 {
+	# Self-signed local CA. Swap for a real cert if you ever expose beyond LAN.
+	tls internal
+
+	# HTTP basic auth. Caddy < 2.8 spells this directive `basicauth`.
+	basic_auth {
+		les REPLACE_WITH_HASH
+	}
+
+	# BUD itself never binds beyond loopback; Caddy is the only network listener.
+	reverse_proxy 127.0.0.1:8000
+}
