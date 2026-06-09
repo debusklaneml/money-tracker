@@ -17,6 +17,10 @@
           {
             "command": "bd prime",
             "type": "command"
+          },
+          {
+            "command": "git config core.hooksPath .githooks",
+            "type": "command"
           }
         ],
         "matcher": ""
