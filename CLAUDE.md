@@ -108,13 +108,18 @@ bd dolt pull
 ```
 </details>
 
-**Keep `bd` versions in sync across the team.** A version mismatch (e.g. one
-machine on 1.0.4, another on 1.0.5) can trigger schema-migration errors and, in
-the worst case, a local DB that won't open at all:
-`failed to open database: … pending schema migrations … dirty tables`. Everyone
-should run `bd version` and standardize on the same (latest) release —
-`brew upgrade beads` (or your install method). `/fix-beads` recovers a wedged DB,
-but matching versions prevents it.
+**Pinned `bd` version (read this).** The whole team runs one `bd` version,
+recorded in **`.bd-version`** at the repo root (currently `1.0.5`). A mismatch
+(e.g. 1.0.4 vs 1.0.5) triggers schema-migration errors and can wedge a local DB
+so it won't open at all (`failed to open database: … pending schema migrations …
+dirty tables`) — and a newer machine can even push a migrated schema the others
+can't read. `/fix-beads` *recovers* a wedged DB, but matching versions *prevents*
+it. The onboarding script warns if your `bd version` ≠ `.bd-version`; fix with
+`brew upgrade beads` (or your install method).
+
+**Bumping the pin:** when the team moves to a newer bd, upgrade the canonical
+machine first (`brew upgrade beads` → it migrates the DB → `bd dolt push`), then
+edit `.bd-version`, commit, and have everyone `brew upgrade` + `/fix-beads`.
 
 **Recovery — local DB independent or wedged.** Two symptoms, same fix (adopt the
 canonical history). `/fix-beads` / the onboarding script handle both automatically;

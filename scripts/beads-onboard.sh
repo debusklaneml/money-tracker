@@ -42,6 +42,20 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Warn (don't block) if this machine's bd version differs from the team pin in
+# .bd-version. Version drift is what causes schema-migration / wedged-DB errors.
+if [ -f .bd-version ]; then
+	REQ=$(tr -d ' \t\r\n' < .bd-version)
+	HAVE=$(bd version 2>/dev/null | sed -n 's/^bd version \([0-9][0-9.]*\).*/\1/p' | head -1)
+	if [ -n "$REQ" ] && [ -n "$HAVE" ] && [ "$REQ" != "$HAVE" ]; then
+		echo "⚠ bd version mismatch: you have $HAVE, the team pin (.bd-version) is $REQ."
+		echo "  Mismatched versions cause schema-migration errors across machines."
+		echo "  Upgrade to match, e.g.:  brew upgrade beads   (or your install method)"
+		echo "  Continuing anyway…"
+		echo ""
+	fi
+fi
+
 # Always enable the pre-push guard (idempotent).
 run git config core.hooksPath .githooks
 echo "✓ pre-push guard enabled (core.hooksPath=.githooks)"

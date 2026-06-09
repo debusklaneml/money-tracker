@@ -187,6 +187,10 @@ sh scripts/beads-onboard.sh
 > keep any local-only issues, and verifies you're synced. It's the one thing to
 > run if your beads ever look out of sync.
 
+> **Everyone runs the same `bd` version** — pinned in [`.bd-version`](.bd-version)
+> (`brew upgrade beads` to match). Version drift causes schema-migration errors;
+> the onboarding script warns you if you're off.
+
 It enables the pre-push guard and either bootstraps the shared issue history or,
 if you already have a local beads DB, rescues your local issues and adopts the
 canonical history (then tells you how to re-add any local-only work). Verify with
