@@ -183,6 +183,11 @@ here before:
 sh scripts/beads-onboard.sh
 ```
 
+It enables the pre-push guard and either bootstraps the shared issue history or,
+if you already have a local beads DB, rescues your local issues and adopts the
+canonical history (then tells you how to re-add any local-only work). Verify with
+`bd ready`.
+
 > Using Claude Code? Just run **`/fix-beads`** — it drives this script, helps you
 > keep any local-only issues, and verifies you're synced. It's the one thing to
 > run if your beads ever look out of sync.
@@ -192,11 +197,6 @@ sh scripts/beads-onboard.sh
 > schema-migration errors; the onboarding script warns you if you're off.
 > **Do not use `bd 1.0.5`** — it's a prerelease that can silently break
 > multi-machine `bd dolt` sync (Homebrew reverted to 1.0.4; fix in 1.0.6).
-
-It enables the pre-push guard and either bootstraps the shared issue history or,
-if you already have a local beads DB, rescues your local issues and adopts the
-canonical history (then tells you how to re-add any local-only work). Verify with
-`bd ready`.
 
 > **Already have a local `bud` DB?** A bare `bd bootstrap` will fail with
 > `Error 1007: can't create database bud; database exists` — that's expected, and
