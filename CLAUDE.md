@@ -50,6 +50,53 @@ bd close <id>         # Complete work
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
 
+## Beads — Multi-Developer Sync (READ THIS FIRST AFTER CLONING)
+
+> If you are an agent and a teammate just pointed you here on a fresh clone:
+> run the **one-time setup** below before doing any `bd` work, then report back.
+
+This repo is worked on from multiple machines through a **single GitHub remote**.
+Beads issues do **not** travel with `git pull`. There are two separate channels
+riding the same repo:
+
+| Channel | Command | Carries |
+| --- | --- | --- |
+| Code | `git pull` / `git push` | source code + the *passive* `.beads/issues.jsonl` export |
+| Issues | `bd dolt pull` / `bd dolt push` | the real issue database (`refs/dolt/data`) |
+
+**A plain `git pull` does NOT update your issue database.** It only drops a fresh
+`issues.jsonl` file on disk; importing that file is an anti-pattern (it is
+upsert-only and silently misses deletions/prunes — see
+[SYNC_CONCEPTS.md](https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md)).
+
+### One-time setup (per machine, after first clone)
+
+```bash
+bd bootstrap            # clones the issue history (refs/dolt/data) and wires the Dolt remote
+bd dolt remote list     # verify: should list `origin`, NOT "No remotes configured"
+```
+
+If `bd dolt remote list` still shows **no remotes**, wire it explicitly:
+
+```bash
+bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git
+bd dolt pull
+```
+
+If you created any issues locally *before* doing this setup, run `bd dolt push`
+once afterward so they merge into the shared history instead of being stranded.
+
+### Every session
+
+```bash
+bd dolt pull            # START: pull teammates' issue changes before working
+# ...do work, bd create / update / close...
+bd dolt push            # END: publish your issue changes (in addition to git push)
+```
+
+The session-completion workflow above already includes `git push`; on this team
+you must **also** `bd dolt push` so issues are shared, not just code.
+
 
 ## Build & Test
 

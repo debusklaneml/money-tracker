@@ -159,6 +159,37 @@ cd frontend && npm run e2e
 > `.venv/bin/python -m pytest` and
 > `.venv/bin/python -m uvicorn backend.main:app --reload`.
 
+## Contributing — issue tracking (beads)
+
+This project tracks issues with **[beads](https://github.com/gastownhall/beads)**
+(`bd`). Multiple people contribute from different machines through this one
+GitHub repo, and **beads issues do not travel with `git pull`.** There are two
+separate sync channels riding the same remote:
+
+| Channel | Command | Carries |
+| --- | --- | --- |
+| Code | `git pull` / `git push` | source code (+ a passive `.beads/issues.jsonl` export) |
+| Issues | `bd dolt pull` / `bd dolt push` | the real issue database (`refs/dolt/data`) |
+
+A plain `git pull` only refreshes the `issues.jsonl` *file*; it does **not**
+update your local issue database, and importing that file is an anti-pattern
+(it's upsert-only and misses deletions). Sync issues with `bd dolt pull/push`.
+
+**First time on a new machine** (after cloning the repo):
+
+```bash
+bd bootstrap            # clones issue history + wires the Dolt remote
+bd dolt remote list     # verify it shows `origin` (not "No remotes configured")
+# If no remote is shown:
+#   bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git
+#   bd dolt pull
+```
+
+**Each session:** `bd dolt pull` before you start, `bd dolt push` when you finish
+(alongside your `git push`). If you're using an AI agent, point it at
+[`CLAUDE.md`](CLAUDE.md) — it has the same steps in agent-ready form. Full model:
+[beads SYNC_CONCEPTS.md](https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md).
+
 ## Self-hosting & remote access
 
 Want to run BUD on a home server and reach it from your phone? See:
