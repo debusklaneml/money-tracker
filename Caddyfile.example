@@ -3,21 +3,26 @@
 #
 # SETUP (one time):
 #   1. cp Caddyfile.example Caddyfile          # the real Caddyfile is gitignored
-#   2. caddy hash-password --plaintext 'your-strong-password'
+#   2. Set the site address below to THIS machine's LAN IP (find it with
+#        `ipconfig getifaddr en0`). Keep the 127.0.0.1 entry for local testing.
+#        The IP must be listed explicitly — a bare ":8443" has no subject name,
+#        so Caddy's internal CA never mints a cert and the TLS handshake fails
+#        with "internal error" when you reach it by IP.
+#   3. caddy hash-password --plaintext 'your-strong-password'
 #        -> copy the whole $2a$14$... hash
-#   3. Paste that hash after the username below (replace REPLACE_WITH_HASH).
-#   4. Pick your login username (default below is "les").
+#   4. Paste that hash after the username below (replace REPLACE_WITH_HASH).
+#        Pick your login username (default below is "les").
 #
 # RUN:
 #   BUD_NO_BROWSER=1 uv run bud      # BUD stays on 127.0.0.1:8000 (do NOT set BUD_HOST)
 #   caddy run --config ./Caddyfile   # or `caddy start` to daemonize
 #
 # REACH IT from your iPhone (same Wi-Fi):
-#   https://192.168.1.45:8443
+#   https://<this-machine-LAN-IP>:8443
 #   Accept the local-CA warning, or run `caddy trust` on devices you control to
 #   install Caddy's root cert and get a clean padlock.
 
-:8443 {
+https://192.168.1.50:8443, https://127.0.0.1:8443 {
 	# Self-signed local CA. Swap for a real cert if you ever expose beyond LAN.
 	tls internal
 

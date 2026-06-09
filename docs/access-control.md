@@ -56,11 +56,14 @@ repo as [`Caddyfile.example`](../Caddyfile.example).
    # → $2a$14$....   (copy the whole hash)
    ```
 
-   The template (BUD stays on loopback `:8000`; Caddy listens on `:8443`):
+   The template (BUD stays on loopback `:8000`; Caddy listens on `:8443`). Set
+   the site address to this machine's LAN IP — list it explicitly, because a
+   bare `:8443` has no subject name so the internal CA never mints a cert and
+   the TLS handshake fails with `internal error` when reached by IP:
 
    ```caddy
    # Reach BUD at https://<host-lan-ip>:8443 from your phone.
-   :8443 {
+   https://192.168.1.50:8443, https://127.0.0.1:8443 {
        tls internal                # self-signed local CA (or use a real cert)
        basic_auth {                # Caddy < 2.8 spells this `basicauth`
            les REPLACE_WITH_HASH
