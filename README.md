@@ -178,12 +178,18 @@ update your local issue database, and importing that file is an anti-pattern
 **First time on a new machine** (after cloning the repo):
 
 ```bash
-bd bootstrap            # clones issue history + wires the Dolt remote
-bd dolt remote list     # verify it shows `origin` (not "No remotes configured")
+bd bootstrap                          # clones issue history + wires the Dolt remote
+bd dolt remote list                   # verify it shows `origin` (not "No remotes configured")
+git config core.hooksPath .githooks   # enable the pre-push guard (see below)
 # If no remote is shown:
 #   bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git
 #   bd dolt pull
 ```
+
+The repo ships a **pre-push guard** (`.githooks/pre-push`): once you set
+`core.hooksPath` above, every `git push` first verifies your Dolt remote is wired
+and runs `bd dolt push` for you, aborting the push if issues can't sync — so code
+and issues never drift apart. Bypass in a pinch with `git push --no-verify`.
 
 **Each session:** `bd dolt pull` before you start, `bd dolt push` when you finish
 (alongside your `git push`). If you're using an AI agent, point it at

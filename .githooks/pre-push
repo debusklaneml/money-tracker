@@ -1,0 +1,52 @@
+#!/usr/bin/env sh
+# Beads sync guard — runs before every `git push`.
+#
+# Prevents the silent-drift failure mode: `bd dolt push` exits 0 even when no
+# Dolt remote is configured, so issue history can quietly stop syncing while
+# code keeps flowing. This hook welds issue sync to the code push everyone
+# already does, and FAILS LOUDLY instead of skipping.
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Emergency bypass:        git push --no-verify   (use sparingly)
+#
+# See CLAUDE.md → "Beads — Multi-Developer Sync".
+
+# No bd installed locally (e.g. a CI bot that only touches code) → don't block.
+if ! command -v bd >/dev/null 2>&1; then
+	exit 0
+fi
+
+# 1) Refuse to push if the Dolt remote isn't wired. Detect a real remote by a
+#    URL-looking line; "No remotes configured." has no URL and falls through.
+remotes=$(bd dolt remote list 2>/dev/null)
+case "$remotes" in
+	*://* | *git+*)
+		: # a remote is configured — good
+		;;
+	*)
+		echo "" >&2
+		echo "✗ beads: no Dolt remote configured — your ISSUES are not syncing." >&2
+		echo "  Code would push, but issue history would silently drift." >&2
+		echo "  Fix:" >&2
+		echo "    bd dolt remote add origin git+https://github.com/debusklaneml/money-tracker.git" >&2
+		echo "    bd dolt pull && bd dolt push" >&2
+		echo "  (details: CLAUDE.md → 'Beads — Multi-Developer Sync')" >&2
+		echo "  Bypass once with: git push --no-verify" >&2
+		echo "" >&2
+		exit 1
+		;;
+esac
+
+# 2) Push issue history alongside the code. Abort the git push if it fails so
+#    issues never silently fall behind the code.
+echo "beads: syncing issue history (bd dolt push)…" >&2
+if ! bd dolt push >&2; then
+	echo "" >&2
+	echo "✗ beads: 'bd dolt push' failed — aborting git push so issues don't drift." >&2
+	echo "  Likely fix: 'bd dolt pull' to merge, then push again." >&2
+	echo "  Bypass once with: git push --no-verify" >&2
+	echo "" >&2
+	exit 1
+fi
+echo "beads: issue history synced ✓" >&2
+exit 0

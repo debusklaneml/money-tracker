@@ -72,9 +72,16 @@ upsert-only and silently misses deletions/prunes — see
 ### One-time setup (per machine, after first clone)
 
 ```bash
-bd bootstrap            # clones the issue history (refs/dolt/data) and wires the Dolt remote
-bd dolt remote list     # verify: should list `origin`, NOT "No remotes configured"
+bd bootstrap                          # clones the issue history (refs/dolt/data) and wires the Dolt remote
+bd dolt remote list                   # verify: should list `origin`, NOT "No remotes configured"
+git config core.hooksPath .githooks   # enable the pre-push guard (see below)
 ```
+
+**Pre-push guard.** `.githooks/pre-push` runs on every `git push`: it refuses to
+push if your Dolt remote isn't wired, and it runs `bd dolt push` for you,
+aborting the push if issue sync fails. This makes silent issue drift impossible.
+It only activates after you set `core.hooksPath` above (one time, per clone).
+Emergency bypass: `git push --no-verify`.
 
 If `bd dolt remote list` still shows **no remotes**, wire it explicitly:
 
