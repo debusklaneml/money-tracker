@@ -152,12 +152,30 @@ const MODES: { value: Mode; label: string }[] = [
   { value: 'refill', label: 'Refill up to amount' },
 ]
 
+const MONTHS: { value: number; label: string }[] = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' },
+]
+
 /**
  * Compact inline editor (popover) for a category's funding target. Lets the
  * user set an amount (dollars → milliunits), a cadence, a mode, and — for the
  * `custom` cadence — an every-N-months interval, persisting via
- * useSetCategoryTarget. A "Clear target" action removes it via
- * useDeleteCategoryTarget. Dismissable with Escape or the Cancel button.
+ * useSetCategoryTarget. For `yearly` and `custom` cadences the user can also
+ * pick a *due month*: BUD then funds the remaining amount evenly across the
+ * months leading up to it (YNAB "by date" spread) instead of dumping it all at
+ * once. A "Clear target" action removes it via useDeleteCategoryTarget.
+ * Dismissable with Escape or the Cancel button.
  */
 function TargetEditor({
   category,
@@ -178,8 +196,20 @@ function TargetEditor({
   const [mode, setMode] = useState<Mode>(
     (category.target_mode as Mode | null) ?? 'refill',
   )
-  const [everyN, setEveryN] = useState('1')
+  const [everyN, setEveryN] = useState(
+    category.target_every_n_months != null
+      ? String(category.target_every_n_months)
+      : '1',
+  )
+  // '' means "no due month / spread evenly". Otherwise a month number 1-12.
+  const [dueMonth, setDueMonth] = useState(
+    category.target_month_of_year != null
+      ? String(category.target_month_of_year)
+      : '',
+  )
   const [error, setError] = useState<string | null>(null)
+
+  const showDueMonth = cadence === 'yearly' || cadence === 'custom'
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -209,6 +239,11 @@ function TargetEditor({
     if (cadence === 'custom') {
       const n = parseInt(everyN, 10)
       body.every_n_months = Number.isFinite(n) && n > 0 ? n : 1
+    }
+    if (showDueMonth) {
+      // Empty selection clears the anchor (back to an even spread).
+      const m = parseInt(dueMonth, 10)
+      body.month_of_year = Number.isFinite(m) && m >= 1 && m <= 12 ? m : null
     }
     setTarget.mutate({ id: category.id, body }, { onSuccess: onClose })
   }
@@ -263,6 +298,28 @@ function TargetEditor({
               onChange={(e) => setEveryN(e.target.value)}
               className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
             />
+          </label>
+        )}
+
+        {showDueMonth && (
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            Due by (month)
+            <select
+              aria-label="Due month"
+              value={dueMonth}
+              onChange={(e) => setDueMonth(e.target.value)}
+              className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            >
+              <option value="">No due date (spread evenly)</option>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] font-normal text-slate-400">
+              Funds the remaining amount evenly across the months up to this one.
+            </span>
           </label>
         )}
 

@@ -16,6 +16,8 @@ export interface CategoryState {
   target_amount: number | null;
   target_cadence: string | null;
   target_mode: string | null;
+  target_every_n_months: number | null;
+  target_month_of_year: number | null;
   target_needed: number;
   underfunded: number;
   is_payment: boolean;

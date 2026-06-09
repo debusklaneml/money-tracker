@@ -338,6 +338,8 @@ describe('EnvelopeGrid', () => {
         amount_milliunits: 75000,
         cadence: 'yearly',
         mode: 'full',
+        // No due month selected -> explicitly null (spread evenly).
+        month_of_year: null,
       },
     })
 
@@ -371,8 +373,54 @@ describe('EnvelopeGrid', () => {
         cadence: 'custom',
         mode: 'refill',
         every_n_months: 3,
+        // No due month selected -> explicitly null (spread evenly).
+        month_of_year: null,
       },
     })
+  })
+
+  it('includes month_of_year (due month) for a yearly by-date target', async () => {
+    const user = userEvent.setup()
+    render(<EnvelopeGrid />)
+
+    await user.click(
+      screen.getAllByRole('button', { name: /edit target for rent/i })[0],
+    )
+    const editor = screen.getByRole('dialog', { name: /edit target for rent/i })
+
+    await user.type(within(editor).getByLabelText(/amount/i), '1200')
+    await user.selectOptions(within(editor).getByLabelText(/cadence/i), 'yearly')
+    // The due-month select only appears for yearly/custom cadences.
+    await user.selectOptions(within(editor).getByLabelText(/due month/i), '12')
+    await user.click(within(editor).getByRole('button', { name: /^save$/i }))
+
+    expect(setTargetMutate.mock.calls[0][0]).toEqual({
+      id: 'c1',
+      body: {
+        amount_milliunits: 1200000,
+        cadence: 'yearly',
+        mode: 'refill',
+        month_of_year: 12,
+      },
+    })
+  })
+
+  it('hides the due-month picker for weekly and monthly cadences', async () => {
+    const user = userEvent.setup()
+    render(<EnvelopeGrid />)
+
+    await user.click(
+      screen.getAllByRole('button', { name: /edit target for rent/i })[0],
+    )
+    const editor = screen.getByRole('dialog', { name: /edit target for rent/i })
+
+    // Default cadence is monthly -> no due-month picker.
+    expect(within(editor).queryByLabelText(/due month/i)).toBeNull()
+    await user.selectOptions(within(editor).getByLabelText(/cadence/i), 'weekly')
+    expect(within(editor).queryByLabelText(/due month/i)).toBeNull()
+    // Switching to yearly reveals it.
+    await user.selectOptions(within(editor).getByLabelText(/cadence/i), 'yearly')
+    expect(within(editor).getByLabelText(/due month/i)).toBeInTheDocument()
   })
 
   it('surfaces a blocked-assign (Ready-to-Assign exceeded) error inline', () => {
