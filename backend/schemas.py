@@ -58,6 +58,12 @@ class CategoryState(BaseModel):
     target_mode: Optional[str] = Field(
         None, description="Target mode: 'full' (repeat) or 'refill' (top up)."
     )
+    target_every_n_months: Optional[int] = Field(
+        None, description="Custom-cadence interval (every N months), if set."
+    )
+    target_month_of_year: Optional[int] = Field(
+        None, description="Due-month anchor (1-12) for by-date yearly/custom targets."
+    )
     target_needed: int = Field(
         0, description="Milliunits the target wants set aside this month (cadence only)."
     )

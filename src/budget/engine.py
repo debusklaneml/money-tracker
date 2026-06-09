@@ -111,6 +111,8 @@ class CategoryState:
     target_amount: Optional[int] = None      # milliunits
     target_cadence: Optional[str] = None     # weekly | monthly | yearly | custom
     target_mode: Optional[str] = None        # full | refill
+    target_every_n_months: Optional[int] = None  # custom cadence interval
+    target_month_of_year: Optional[int] = None   # due-month anchor (1-12)
     target_needed: int = 0                   # what this month wants (cadence only)
     underfunded: int = 0                     # still missing after assigned/carry-in
     is_payment: bool = False                 # credit-card payment category?
@@ -444,11 +446,18 @@ class BudgetEngine:
                 cs.target_amount = target.amount
                 cs.target_cadence = target.cadence
                 cs.target_mode = target.mode
-                cs.target_needed = monthly_need(target, month)
+                cs.target_every_n_months = target.every_n_months
+                cs.target_month_of_year = target.month_of_year
+                cin = carryin.get(cid, 0)
+                # Pass carry-in so by-date (yearly/custom with a due month)
+                # targets spread the remaining amount toward the due month.
+                cs.target_needed = monthly_need(
+                    target, month, available_carryin=cin
+                )
                 cs.underfunded = underfunded(
                     target, month,
                     assigned=cs.assigned,
-                    available_carryin=carryin.get(cid, 0),
+                    available_carryin=cin,
                 )
             categories.append(cs)
 
