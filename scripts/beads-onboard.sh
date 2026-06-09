@@ -75,11 +75,18 @@ if bd dolt pull >"$PULL_ERR" 2>&1; then
 	exit 0
 fi
 
-# Pull failed. Distinguish an orphan/independent history (needs repair) from a
-# transient error (don't destroy anything).
+# Pull failed. Classify it. Two cases are recoverable by adopting the canonical
+# history; anything else we refuse to touch.
+WEDGED=0
 if grep -qiE "no common ancestor|database exists|unrelated histor" "$PULL_ERR"; then
 	echo "⚠ Your local DB is an INDEPENDENT history (no common ancestor with the shared one)."
 	echo "  This needs a one-time repair to adopt the canonical history."
+elif grep -qiE "failed to open database|pending schema migration|dirty tables|init schema|migrate:" "$PULL_ERR"; then
+	echo "⚠ Your local DB won't open — a schema-migration / dirty-state problem,"
+	echo "  usually caused by a bd VERSION MISMATCH across machines (run 'bd version';"
+	echo "  everyone should be on the same version). bd can't self-export, so we'll"
+	echo "  rescue the on-disk JSONL export instead, then adopt the canonical history."
+	WEDGED=1
 else
 	echo "✗ 'bd dolt pull' failed for an unexpected reason:" >&2
 	cat "$PULL_ERR" >&2
@@ -91,7 +98,7 @@ rm -f "$PULL_ERR"
 
 # Confirm before the destructive (but rescue-backed) repair.
 if [ "$ASSUME_YES" -ne 1 ]; then
-	printf "Adopt the canonical shared history now? Your local issues are exported first. [y/N] "
+	printf "Adopt the canonical shared history now? Your local issues are rescued first. [y/N] "
 	read -r ANS
 	case "$ANS" in
 		y | Y | yes | YES) ;;
@@ -100,8 +107,15 @@ if [ "$ASSUME_YES" -ne 1 ]; then
 fi
 
 RESCUE="${TMPDIR:-/tmp}/beads-local-rescue-$$.jsonl"
-echo "Exporting a rescue copy of your local issues…"
-bd export --output "$RESCUE" 2>/dev/null || true
+echo "Rescuing a copy of your local issues…"
+# Prefer a live export; if the DB won't open (wedged), fall back to the on-disk
+# JSONL export that bd keeps committed.
+if ! bd export --output "$RESCUE" 2>/dev/null || [ ! -s "$RESCUE" ]; then
+	if [ -f .beads/issues.jsonl ]; then
+		cp .beads/issues.jsonl "$RESCUE" 2>/dev/null || true
+		echo "  (DB unreadable — rescued the on-disk .beads/issues.jsonl export instead)"
+	fi
+fi
 COUNT=0
 if [ -f "$RESCUE" ]; then
 	COUNT=$(grep -c . "$RESCUE" 2>/dev/null) || COUNT=0

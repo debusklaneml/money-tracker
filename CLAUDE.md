@@ -108,15 +108,29 @@ bd dolt pull
 ```
 </details>
 
-**If `bd bootstrap` errors with `database exists` (Error 1007), or `bd dolt
-pull`/`push` reports `no common ancestor`** you already have a local DB that was
-initialized independently from the shared history. The onboarding script handles
-this automatically; the manual equivalent is:
+**Keep `bd` versions in sync across the team.** A version mismatch (e.g. one
+machine on 1.0.4, another on 1.0.5) can trigger schema-migration errors and, in
+the worst case, a local DB that won't open at all:
+`failed to open database: … pending schema migrations … dirty tables`. Everyone
+should run `bd version` and standardize on the same (latest) release —
+`brew upgrade beads` (or your install method). `/fix-beads` recovers a wedged DB,
+but matching versions prevents it.
+
+**Recovery — local DB independent or wedged.** Two symptoms, same fix (adopt the
+canonical history). `/fix-beads` / the onboarding script handle both automatically;
+the manual equivalent:
+
+- `bd bootstrap` → `database exists` (Error 1007), or `bd dolt pull/push` →
+  `no common ancestor` = your DB is an **independent history**.
+- every `bd` command → `failed to open database … pending schema migrations …
+  dirty tables` = your DB is **wedged** (usually a version mismatch); bd can't
+  self-export, so rescue the on-disk JSONL by file copy.
 
 ```bash
-bd export --output /tmp/my-local-issues.jsonl   # rescue any local-only issues first
-rm -rf .beads/embeddeddolt && bd bootstrap        # re-clone the canonical history
-bd import /tmp/my-local-issues.jsonl              # re-add ONLY if you had real local work, then:
+bd export --output /tmp/my-local-issues.jsonl    # rescue; if the DB won't open:
+cp .beads/issues.jsonl /tmp/my-local-issues.jsonl #   fall back to the on-disk export
+rm -rf .beads/embeddeddolt && bd bootstrap         # re-clone the canonical history
+bd import /tmp/my-local-issues.jsonl               # re-add ONLY if you had real local work, then:
 bd dolt push
 ```
 
