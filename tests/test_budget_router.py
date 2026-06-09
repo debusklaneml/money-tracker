@@ -75,6 +75,8 @@ def test_budget_router_roundtrip():
             "income_month",
             "income_total",
             "assigned_total",
+            "assigned_this_month",
+            "is_past_funded",
             "categories",
         ):
             assert key in state
@@ -102,6 +104,9 @@ def test_budget_router_roundtrip():
         assert a0["assigned"] == 50_000
         assert a0["available"] == 50_000
         assert after_assign["assigned_total"] == 50_000
+        # Current month, nothing funded later -> per-month == pool, not past.
+        assert after_assign["assigned_this_month"] == 50_000
+        assert after_assign["is_past_funded"] is False
 
         # POST /budget/move -> 20_000 from c0 to c1
         resp = client.post(

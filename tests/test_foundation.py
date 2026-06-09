@@ -184,7 +184,9 @@ def test_cash_overspend_docks_next_month_rta_and_floors_category(db):
     _income(db, 100_000, "2026-06-01", txn_id="inc-june")
     _income(db, 100_000, "2026-07-01", txn_id="inc-july")
     groceries = _cat(db, "Groceries")
-    eng = BudgetEngine(db)
+    # Pin "today" past both inflows so they count as arrived — this test is about
+    # overspend rollover, not income-arrival gating (bud-qm5).
+    eng = BudgetEngine(db, today="2026-08-01")
 
     # June: assign 50k, spend 80k -> overspent by 30k.
     eng.assign(groceries, 50_000, month="2026-06-01")
@@ -252,3 +254,70 @@ def test_assign_into_future_month_and_furthest_month_rta(db):
     # But assigning exactly the remaining cash far ahead is fine.
     eng.assign(gas, 100_000, month="2026-12-01")
     assert eng.get_state("2026-12-01").ready_to_assign == 0
+
+
+# --- bud-24v: past-month RTA display context --------------------------------
+def test_past_month_flagged_and_not_a_real_overassign(db):
+    """When later months are funded, an earlier month's RTA is deflated by the
+    shared cash pool. That month must be flagged is_past_funded so the header can
+    relabel it instead of alarming "Over-assigned" — without changing the math."""
+    # June income only (100k). Assign all of June, then more into July.
+    _income(db, 100_000, "2026-06-01")
+    groceries, gas = _cat(db, "Groceries"), _cat(db, "Gas / Fuel")
+    eng = BudgetEngine(db, today="2026-07-15")  # both months are in the past
+
+    eng.assign(groceries, 100_000, month="2026-06-01")  # June fully budgeted
+    # July income arrives and gets assigned too.
+    _income(db, 80_000, "2026-07-01", txn_id="inc-jul")
+    eng.assign(gas, 80_000, month="2026-07-01")
+
+    june = eng.get_state("2026-06-01")
+    july = eng.get_state("2026-07-01")
+    # June's raw RTA is deflated/negative (income_through_June 100k - global
+    # assigned 180k = -80k) but that's a cash-pool artifact, NOT over-assignment.
+    assert june.ready_to_assign == -80_000
+    assert june.is_past_funded is True            # header relabels as "Past month"
+    # July is the furthest funded month: it reports the true remaining RTA (0) and
+    # is NOT flagged past (nothing is funded beyond it).
+    assert july.ready_to_assign == 0
+    assert july.is_past_funded is False
+
+
+def test_assigned_this_month_vs_all_months(db):
+    """bud-s68: assigned_this_month is per-month; assigned_total is the global
+    cash pool. They differ once money is assigned across multiple months."""
+    _income(db, 300_000, "2026-06-01")
+    groceries, gas = _cat(db, "Groceries"), _cat(db, "Gas / Fuel")
+    eng = BudgetEngine(db, today="2026-09-01")
+
+    eng.assign(groceries, 50_000, month="2026-06-01")
+    eng.assign(gas, 60_000, month="2026-07-01")
+
+    june = eng.get_state("2026-06-01")
+    assert june.assigned_this_month == 50_000     # only June's assignment
+    assert june.assigned_total == 110_000         # whole pool (June + July)
+
+
+# --- bud-qm5: cannot budget future-dated income before it arrives -----------
+def test_future_dated_income_not_assignable_before_arrival(db):
+    """Income dated in the future (relative to today) is recognised by its month
+    but is NOT part of the assignable pool until it actually arrives."""
+    _income(db, 100_000, "2026-06-01", txn_id="inc-jun")          # arrived
+    _income(db, 300_000, "2026-08-01", txn_id="inc-aug")          # future-dated
+    gas = _cat(db, "Gas / Fuel")
+    eng = BudgetEngine(db, today="2026-06-09")  # Aug income has NOT arrived yet
+
+    aug = eng.get_state("2026-08-01")
+    # income_total recognises both (400k) but only the arrived 100k is assignable.
+    assert aug.income_total == 400_000
+    assert aug.ready_to_assign == 100_000
+    # Assigning the full 300k Aug inflow in August is REJECTED (it hasn't arrived).
+    with pytest.raises(RTAExceededError):
+        eng.assign(gas, 300_000, month="2026-08-01")
+    # And June does not get dragged to -200k by a premature August assignment.
+    eng.assign(gas, 100_000, month="2026-08-01")  # only the arrived cash
+    assert eng.get_state("2026-06-01").ready_to_assign == 0
+
+    # Once today passes the Aug arrival date, the full pool becomes assignable.
+    eng_after = BudgetEngine(db, today="2026-08-02")
+    assert eng_after.get_state("2026-08-01").ready_to_assign == 300_000  # 400k-100k

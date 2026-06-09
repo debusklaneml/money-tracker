@@ -1394,6 +1394,41 @@ class Database:
             ).fetchone()
             return int(row[0] or 0)
 
+    def furthest_assigned_month(self, budget_id: str) -> Optional[str]:
+        """The latest month (YYYY-MM-01) that has any *positive* assignment.
+
+        This is the furthest-funded month in the single cash-pool model: it sees
+        the most income recognised while subtracting the same global assignments,
+        so it reports the truest remaining Ready-to-Assign. Used to tell whether a
+        viewed month sits *before* the funding frontier (where the per-pool RTA
+        looks deflated/negative even though that month was budgeted fine).
+        Returns ``None`` when nothing has been assigned yet.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """SELECT MAX(month) FROM monthly_budgets
+                   WHERE budget_id = ? AND budgeted > 0""",
+                (budget_id,),
+            ).fetchone()
+        return row[0] if row and row[0] else None
+
+    def income_arrived_total(self, budget_id: str, as_of_date: str) -> int:
+        """Cumulative income (uncategorized inflows) that has ARRIVED by ``as_of_date``.
+
+        Like :meth:`income_total` but gated on the literal transaction date being
+        ``<= as_of_date`` (typically *today*), not on the viewed budget month. A
+        future-DATED inflow is therefore NOT counted until that date passes, so it
+        can't be budgeted before it actually exists. ``as_of_date`` is YYYY-MM-DD.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """SELECT SUM(amount) FROM transactions
+                   WHERE budget_id = ? AND deleted = 0 AND category_id IS NULL AND amount > 0
+                     AND date(date) <= date(?)""",
+                (budget_id, as_of_date),
+            ).fetchone()
+            return int(row[0] or 0)
+
     def clear_imported_data(self, budget_id: str) -> None:
         """Remove imported transactions, accounts and import history.
         Keeps categories, rules and assignments so the budget structure survives."""

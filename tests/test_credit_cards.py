@@ -79,7 +79,9 @@ def test_cash_overspend_still_docks_rta(db):
     _income(db, 100_000, "2026-06-01", txn_id="inc-jun")
     _income(db, 100_000, "2026-07-01", txn_id="inc-jul")
     groceries = _cat(db, "Groceries")
-    eng = BudgetEngine(db)
+    # Pin "today" past both inflows so income-arrival gating (bud-qm5) is a no-op;
+    # this test is about cash-overspend docking RTA.
+    eng = BudgetEngine(db, today="2026-08-01")
 
     eng.assign(groceries, 50_000, month="2026-06-01")
     _spend(db, chk, groceries, "Groceries", -80_000, "2026-06-15", "g-jun")
@@ -99,7 +101,8 @@ def test_credit_overspend_does_not_dock_rta_and_grows_payment(db):
     _income(db, 100_000, "2026-07-01", txn_id="inc-jul")
     groceries = _cat(db, "Groceries")
     pay_id = db.get_payment_category_for_account(LOCAL_BUDGET_ID, cc)["id"]
-    eng = BudgetEngine(db)
+    # Pin "today" past both inflows so income-arrival gating (bud-qm5) is a no-op.
+    eng = BudgetEngine(db, today="2026-08-01")
 
     # Assign 50k to groceries, then spend 80k on the credit card -> overspent 30k,
     # but it's all credit, so it must NOT dock RTA.

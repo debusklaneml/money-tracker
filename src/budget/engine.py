@@ -35,12 +35,14 @@ Ready to Assign
 ---------------
 ::
 
-    RTA(M) = Σ income through M
+    RTA(M) = min(Σ income through M, Σ income arrived by today)
            − Σ assigned across ALL months (the whole cash pool)
            − Σ prior-month cash overspends absorbed at boundaries before M
 
-Income is gated by month (you can only assign money that has *arrived* by M),
-but assignments draw from one shared pool of cash, so the assigned term sums
+Income is gated two ways: by the viewed month (income recognised through M) AND
+by *arrival* (income whose transaction date has actually passed as of today), so
+a future-DATED inflow can't be budgeted before it lands — we take the min of the
+two. Assignments draw from one shared pool of cash, so the assigned term sums
 *every* month — past and future. That is what makes assigning into a future
 month immediately lower the current month's RTA, and it makes the furthest
 month that has any money assigned report the most accurate remaining RTA (it
@@ -72,6 +74,11 @@ from src.budget.targets import Target, monthly_need, underfunded
 def current_month() -> str:
     """Current budget month as YYYY-MM-01."""
     return datetime.now().strftime("%Y-%m-01")
+
+
+def current_month_day() -> str:
+    """Today's date as YYYY-MM-DD (the arrival cutoff for assignable income)."""
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 class RTAExceededError(Exception):
@@ -117,6 +124,14 @@ class BudgetState:
     income_total: int
     assigned_total: int
     categories: list[CategoryState]
+    # Sum of assignments made *in this viewed month* (vs. assigned_total, which is
+    # the whole cash pool across every month — what actually backs RTA).
+    assigned_this_month: int = 0
+    # True when the viewed month sits *before* the furthest funded month. In the
+    # single cash-pool model such a past month's RTA is deflated (income through
+    # it is less than the global assignments drawn from the pool), so a negative
+    # value here is NOT a real "over-assigned" alarm — it's a display artifact.
+    is_past_funded: bool = False
 
     @property
     def overspent(self) -> list[CategoryState]:
@@ -126,9 +141,17 @@ class BudgetState:
 class BudgetEngine:
     """Computes the budget state and applies assignments to the local DB."""
 
-    def __init__(self, db: Database, budget_id: str = LOCAL_BUDGET_ID):
+    def __init__(self, db: Database, budget_id: str = LOCAL_BUDGET_ID,
+                 today: Optional[str] = None):
         self.db = db
         self.budget_id = budget_id
+        # The "arrival" cutoff for assignable income (YYYY-MM-DD). Defaults to the
+        # real clock; injectable so tests are deterministic and don't depend on
+        # when they run. See the income-arrival gating in get_state (bud-qm5).
+        self._today = today
+
+    def _today_date(self) -> str:
+        return self._today or current_month_day()
 
     # --- writes -------------------------------------------------------
     def assign(self, category_id: str, amount: int, month: Optional[str] = None) -> None:
@@ -430,10 +453,27 @@ class BudgetEngine:
             categories.append(cs)
 
         income_total = self.db.income_total(bid, month)
+        # The pool you may actually assign from is income that has *arrived* — a
+        # future-DATED inflow (e.g. an Aug paycheck) must not be budgetable just
+        # because you're viewing August. Gate the recognised-through-month income
+        # by income that has literally landed as of today (bud-qm5). For the
+        # common case (OFX imports = past transactions) these are equal, so this
+        # is a no-op; it only bites the unusual future-dated inflow.
+        income_arrived = self.db.income_arrived_total(bid, self._today_date())
+        assignable_income = min(income_total, income_arrived)
         # RTA draws from one pool of cash, so EVERY assignment (including ones
         # made into future months) reduces it — global sum, not month <= cap.
         assigned_total = self.db.total_assigned_all_months(bid)
-        ready_to_assign = income_total - assigned_total - prior_cash_overspend
+        ready_to_assign = assignable_income - assigned_total - prior_cash_overspend
+
+        # Past-month display context (bud-24v): when the viewed month is earlier
+        # than the furthest funded month, this month's RTA is deflated by design
+        # (less income recognised, same global assignments) — so a negative value
+        # is a cash-pool artifact, not a real over-assignment. Expose a flag so the
+        # header can relabel it instead of crying "Over-assigned".
+        furthest = self.db.furthest_assigned_month(bid)
+        is_past_funded = furthest is not None and month < furthest
+
         return BudgetState(
             month=month,
             ready_to_assign=ready_to_assign,
@@ -441,4 +481,6 @@ class BudgetEngine:
             income_total=income_total,
             assigned_total=assigned_total,
             categories=categories,
+            assigned_this_month=sum(assigned_now.values()),
+            is_past_funded=is_past_funded,
         )

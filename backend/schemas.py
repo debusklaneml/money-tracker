@@ -123,7 +123,23 @@ class BudgetState(BaseModel):
         ..., description="Cumulative milliunits of income through this month."
     )
     assigned_total: int = Field(
-        ..., description="Cumulative milliunits assigned through this month."
+        ...,
+        description=(
+            "Milliunits assigned across ALL months (the whole cash pool that "
+            "backs Ready-to-Assign), not just through this month."
+        ),
+    )
+    assigned_this_month: int = Field(
+        0, description="Milliunits assigned in THIS viewed month only."
+    )
+    is_past_funded: bool = Field(
+        False,
+        description=(
+            "True when the viewed month is earlier than the furthest funded "
+            "month. In the cash-pool model such a past month's ready_to_assign "
+            "is deflated by design, so a negative value is NOT a real "
+            "over-assignment — the UI should relabel it rather than alarm."
+        ),
     )
     categories: list[CategoryState] = Field(
         default_factory=list, description="Per-category state for this month."
