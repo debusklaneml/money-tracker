@@ -20,7 +20,7 @@ strings as stored in SQLite.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,21 +72,23 @@ class CategoryState(BaseModel):
 class TargetRequest(BaseModel):
     """Create/replace a category funding target (bud-bjl)."""
 
-    amount_milliunits: int = Field(..., description="Target amount in milliunits.")
-    cadence: str = Field(
+    amount_milliunits: int = Field(
+        ..., gt=0, description="Target amount in milliunits (must be positive)."
+    )
+    cadence: Literal["weekly", "monthly", "yearly", "custom"] = Field(
         "monthly", description="weekly | monthly | yearly | custom (every-N-months)."
     )
-    mode: str = Field(
+    mode: Literal["full", "refill"] = Field(
         "refill", description="'full' (repeat full amount) or 'refill' (top up to amount)."
     )
     every_n_months: int = Field(
-        1, description="For cadence='custom': fund 1/N of the amount per month."
+        1, ge=1, description="For cadence='custom': fund 1/N of the amount per month."
     )
     day_of_month: Optional[int] = Field(
-        None, description="Optional day-of-month anchor (1-31)."
+        None, ge=1, le=31, description="Optional day-of-month anchor (1-31)."
     )
     month_of_year: Optional[int] = Field(
-        None, description="Optional month anchor for yearly sinking funds (1-12)."
+        None, ge=1, le=12, description="Optional month anchor for yearly sinking funds (1-12)."
     )
 
 

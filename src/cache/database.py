@@ -207,6 +207,12 @@ CREATE INDEX IF NOT EXISTS idx_monthly_budgets_budget_month ON monthly_budgets(b
 LOCAL_BUDGET_ID = "local"
 LOCAL_BUDGET_NAME = "My Budget"
 
+# Account `type` values (lowercased) treated as credit cards / lines of credit.
+# Single source of truth for the credit-vs-cash overspend split — keep the three
+# queries that filter on it in lockstep by building the SQL fragment from here.
+CREDIT_ACCOUNT_TYPES = ("creditcard", "credit", "creditline", "lineofcredit")
+_CREDIT_TYPES_IN = ", ".join(f"'{t}'" for t in CREDIT_ACCOUNT_TYPES)
+
 # Seeded the first time a fresh budget is created; fully editable afterwards.
 #
 # YNAB-style default structure ("give every dollar a job"), grouped by:
@@ -265,16 +271,37 @@ class Database:
             db_path = Path.home() / ".bud" / "cache.db"
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Create a fresh DB file owner-only *before* sqlite opens it, so the
-        # full financial history is never even briefly world-readable (the
-        # default umask would otherwise yield 0644). os.open honours 0o600
-        # exactly here because umask only clears bits and 0o600 has none set
-        # in the group/other range.
-        if not self.db_path.exists():
-            os.close(os.open(self.db_path, os.O_CREAT | os.O_WRONLY, 0o600))
-        self._init_schema()
-        self._migrate()
-        self.ensure_local_budget()
+        # Restrict the parent dir to the owner FIRST, before any DB / WAL / SHM
+        # I/O, so nothing inside is reachable by other local users even during
+        # the init+seed window (mkdir's mode= is umask-masked, so chmod is the
+        # reliable form).
+        try:
+            os.chmod(self.db_path.parent, 0o700)
+        except OSError:
+            pass
+        # Create the DB and ALL its sidecars owner-only from the first byte. A
+        # restrictive umask makes SQLite create the -wal/-shm files 0600 too (it
+        # honours the process umask), so the financial history is never even
+        # briefly world-readable. The main file is additionally pre-created 0600
+        # atomically (O_EXCL) and symlink-safe (O_NOFOLLOW) before sqlite opens
+        # it. Construction is serialized by deps.get_db's lock, so the brief
+        # process-global umask change is safe.
+        old_umask = os.umask(0o077)
+        try:
+            if not self.db_path.exists():
+                flags = (os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                         | getattr(os, "O_NOFOLLOW", 0))
+                try:
+                    os.close(os.open(self.db_path, flags, 0o600))
+                except FileExistsError:
+                    pass
+            self._init_schema()
+            self._migrate()
+            self.ensure_local_budget()
+        finally:
+            os.umask(old_umask)
+        # Belt-and-suspenders: tighten sidecar modes and any pre-existing
+        # historically-0644 database / 0755 directory.
         self._harden_permissions()
 
     def _harden_permissions(self) -> None:
@@ -322,6 +349,51 @@ class Database:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
                     pass  # column already exists
+            # Collapse any duplicate credit-card payment categories left by an
+            # older non-atomic ensure_payment_category, then enforce uniqueness
+            # so the race can never recur. (Dedupe must precede the unique index,
+            # which would otherwise fail to build on an already-duplicated DB.)
+            self._dedupe_payment_categories(conn)
+            try:
+                conn.execute(
+                    """CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_payment_account
+                       ON categories(budget_id, payment_account_id)
+                       WHERE payment_account_id IS NOT NULL"""
+                )
+            except sqlite3.OperationalError:
+                pass
+
+    @staticmethod
+    def _dedupe_payment_categories(conn: sqlite3.Connection) -> None:
+        """Keep one payment category per (budget_id, account); repoint & drop dups."""
+        dup_groups = conn.execute(
+            """SELECT budget_id, payment_account_id
+               FROM categories
+               WHERE payment_account_id IS NOT NULL
+               GROUP BY budget_id, payment_account_id
+               HAVING COUNT(*) > 1"""
+        ).fetchall()
+        for budget_id, account_id in dup_groups:
+            rows = conn.execute(
+                """SELECT id FROM categories
+                   WHERE budget_id = ? AND payment_account_id = ?
+                   ORDER BY sort_order, rowid""",
+                (budget_id, account_id),
+            ).fetchall()
+            keep = rows[0]["id"]
+            for extra in rows[1:]:
+                dead = extra["id"]
+                # Move any assignments/activity on the dup onto the survivor.
+                conn.execute(
+                    "UPDATE monthly_budgets SET category_id = ? WHERE category_id = ?",
+                    (keep, dead),
+                )
+                conn.execute(
+                    "UPDATE transactions SET category_id = ? WHERE category_id = ?",
+                    (keep, dead),
+                )
+                conn.execute("DELETE FROM category_targets WHERE category_id = ?", (dead,))
+                conn.execute("DELETE FROM categories WHERE id = ?", (dead,))
 
     def ensure_local_budget(self) -> str:
         """Ensure the single local budget exists, seeding default categories once.
@@ -875,6 +947,9 @@ class Database:
             )
             conn.execute("DELETE FROM monthly_budgets WHERE category_id = ?", (category_id,))
             conn.execute("DELETE FROM category_rules WHERE category_id = ?", (category_id,))
+            # FK enforcement / ON DELETE CASCADE is not enabled, so clear the
+            # category's funding target explicitly or it lingers as an orphan.
+            conn.execute("DELETE FROM category_targets WHERE category_id = ?", (category_id,))
             conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
 
     # ------------------------------------------------------------------
@@ -933,10 +1008,9 @@ class Database:
         """Accounts whose type marks them as credit (credit cards / lines)."""
         with self._get_connection() as conn:
             return conn.execute(
-                """SELECT * FROM accounts
+                f"""SELECT * FROM accounts
                    WHERE budget_id = ? AND closed = 0
-                     AND LOWER(COALESCE(type, '')) IN
-                         ('creditcard', 'credit', 'creditline', 'lineofcredit')""",
+                     AND LOWER(COALESCE(type, '')) IN ({_CREDIT_TYPES_IN})""",
                 (budget_id,),
             ).fetchall()
 
@@ -948,15 +1022,19 @@ class Database:
                 (budget_id, account_id),
             ).fetchone()
 
-    def payment_account_ids(self, budget_id: str) -> set[str]:
-        """Set of account ids that have a linked payment category."""
+    def payment_categories_by_account(self, budget_id: str) -> dict[str, str]:
+        """Map ``account_id -> payment_category_id`` for the budget's credit cards.
+
+        One SELECT for the whole (month-invariant) mapping, so the budget-state
+        walk doesn't re-query per account per month.
+        """
         with self._get_connection() as conn:
             rows = conn.execute(
-                """SELECT payment_account_id FROM categories
+                """SELECT payment_account_id, id FROM categories
                    WHERE budget_id = ? AND payment_account_id IS NOT NULL""",
                 (budget_id,),
             ).fetchall()
-        return {r[0] for r in rows}
+        return {r["payment_account_id"]: r["id"] for r in rows}
 
     def ensure_payment_category(self, budget_id: str, account_id: str,
                                 account_name: str) -> str:
@@ -964,12 +1042,21 @@ class Database:
 
         Returns the category id. The category lives in a 'Credit Card Payments'
         group and carries ``payment_account_id`` linking it back to the account.
+
+        Concurrency-safe: ``BEGIN IMMEDIATE`` takes the write lock up front so two
+        concurrent first-time syncs serialize (the second sees the row the first
+        inserted and returns it), and a partial unique index on
+        ``(budget_id, payment_account_id)`` is the hard backstop.
         """
-        existing = self.get_payment_category_for_account(budget_id, account_id)
-        if existing is not None:
-            return existing["id"]
-        cat_id = uuid.uuid4().hex
         with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT id FROM categories WHERE budget_id = ? AND payment_account_id = ?",
+                (budget_id, account_id),
+            ).fetchone()
+            if existing is not None:
+                return existing["id"]
+            cat_id = uuid.uuid4().hex
             next_order = conn.execute(
                 "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories WHERE budget_id = ?",
                 (budget_id,),
@@ -991,15 +1078,6 @@ class Database:
             ids.append(self.ensure_payment_category(budget_id, acct["id"], acct["name"]))
         return ids
 
-    def account_types(self, budget_id: str) -> dict[str, str]:
-        """Map account_id -> lowercased type for all accounts in the budget."""
-        with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT id, type FROM accounts WHERE budget_id = ?",
-                (budget_id,),
-            ).fetchall()
-        return {r["id"]: (r["type"] or "").lower() for r in rows}
-
     def credit_activity_in_month(self, budget_id: str, month: str) -> dict[str, int]:
         """Per *credit-account* net categorized activity in ``month``.
 
@@ -1009,13 +1087,12 @@ class Database:
         """
         with self._get_connection() as conn:
             rows = conn.execute(
-                """SELECT t.account_id, SUM(t.amount)
+                f"""SELECT t.account_id, SUM(t.amount)
                    FROM transactions t JOIN accounts a ON t.account_id = a.id
                    WHERE t.budget_id = ? AND t.deleted = 0
                      AND t.category_id IS NOT NULL
                      AND strftime('%Y-%m-01', t.date) = ?
-                     AND LOWER(COALESCE(a.type, '')) IN
-                         ('creditcard', 'credit', 'creditline', 'lineofcredit')
+                     AND LOWER(COALESCE(a.type, '')) IN ({_CREDIT_TYPES_IN})
                    GROUP BY t.account_id""",
                 (budget_id, month),
             ).fetchall()
@@ -1032,13 +1109,12 @@ class Database:
         """
         with self._get_connection() as conn:
             rows = conn.execute(
-                """SELECT t.category_id, SUM(t.amount)
+                f"""SELECT t.category_id, SUM(t.amount)
                    FROM transactions t JOIN accounts a ON t.account_id = a.id
                    WHERE t.budget_id = ? AND t.deleted = 0
                      AND t.category_id IS NOT NULL
                      AND strftime('%Y-%m-01', t.date) = ?
-                     AND LOWER(COALESCE(a.type, '')) IN
-                         ('creditcard', 'credit', 'creditline', 'lineofcredit')
+                     AND LOWER(COALESCE(a.type, '')) IN ({_CREDIT_TYPES_IN})
                    GROUP BY t.category_id""",
                 (budget_id, month),
             ).fetchall()

@@ -5,7 +5,7 @@
 // (plus an Assigned subtotal) preceding each group's category rows. Editing
 // the Assigned cell commits an assignment through the API via useAssign().
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
   flexRender,
@@ -14,9 +14,19 @@ import {
   type Row,
 } from '@tanstack/react-table'
 
-import { useAssign, useBudget } from '../../lib/queries'
-import { formatMoney, parseMoneyInput, toInputString } from '../../lib/money'
-import type { CategoryState } from '../../lib/types'
+import {
+  useAssign,
+  useBudget,
+  useDeleteCategoryTarget,
+  useSetCategoryTarget,
+} from '../../lib/queries'
+import {
+  formatMoney,
+  fromDisplay,
+  parseMoneyInput,
+  toInputString,
+} from '../../lib/money'
+import type { CategoryState, TargetRequest } from '../../lib/types'
 
 interface EnvelopeGridProps {
   month?: string
@@ -127,33 +137,255 @@ function AssignedCell({
   )
 }
 
+type Cadence = 'weekly' | 'monthly' | 'yearly' | 'custom'
+type Mode = 'full' | 'refill'
+
+const CADENCES: { value: Cadence; label: string }[] = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly', label: 'Yearly' },
+  { value: 'custom', label: 'Custom (every N months)' },
+]
+
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'full', label: 'Set aside the full amount' },
+  { value: 'refill', label: 'Refill up to amount' },
+]
+
+/**
+ * Compact inline editor (popover) for a category's funding target. Lets the
+ * user set an amount (dollars → milliunits), a cadence, a mode, and — for the
+ * `custom` cadence — an every-N-months interval, persisting via
+ * useSetCategoryTarget. A "Clear target" action removes it via
+ * useDeleteCategoryTarget. Dismissable with Escape or the Cancel button.
+ */
+function TargetEditor({
+  category,
+  onClose,
+}: {
+  category: CategoryState
+  onClose: () => void
+}) {
+  const setTarget = useSetCategoryTarget()
+  const deleteTarget = useDeleteCategoryTarget()
+
+  const [amount, setAmount] = useState(
+    category.target_amount != null ? toInputString(category.target_amount) : '',
+  )
+  const [cadence, setCadence] = useState<Cadence>(
+    (category.target_cadence as Cadence | null) ?? 'monthly',
+  )
+  const [mode, setMode] = useState<Mode>(
+    (category.target_mode as Mode | null) ?? 'refill',
+  )
+  const [everyN, setEveryN] = useState('1')
+  const [error, setError] = useState<string | null>(null)
+
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Move focus into the editor and dismiss on Escape.
+  useEffect(() => {
+    containerRef.current
+      ?.querySelector<HTMLElement>('input, select, button')
+      ?.focus()
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  const handleSave = () => {
+    const dollars = Number(amount.replace(/[$,\s]/g, ''))
+    if (!Number.isFinite(dollars) || amount.trim() === '') {
+      setError('Enter a valid amount.')
+      return
+    }
+    const body: TargetRequest = {
+      amount_milliunits: fromDisplay(dollars),
+      cadence,
+      mode,
+    }
+    if (cadence === 'custom') {
+      const n = parseInt(everyN, 10)
+      body.every_n_months = Number.isFinite(n) && n > 0 ? n : 1
+    }
+    setTarget.mutate({ id: category.id, body }, { onSuccess: onClose })
+  }
+
+  const handleClear = () => {
+    deleteTarget.mutate(category.id, { onSuccess: onClose })
+  }
+
+  const pending = setTarget.isPending || deleteTarget.isPending
+
+  return (
+    <div
+      ref={containerRef}
+      role="dialog"
+      aria-label={`Edit target for ${category.name}`}
+      className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-lg"
+    >
+      <div className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+          Amount ($)
+          <input
+            type="text"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+          Cadence
+          <select
+            value={cadence}
+            onChange={(e) => setCadence(e.target.value as Cadence)}
+            className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          >
+            {CADENCES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {cadence === 'custom' && (
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            Every N months
+            <input
+              type="number"
+              min={1}
+              value={everyN}
+              onChange={(e) => setEveryN(e.target.value)}
+              className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            />
+          </label>
+        )}
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+          Mode
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as Mode)}
+            className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          >
+            {MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {error && (
+          <span role="alert" className="text-xs text-rose-600">
+            {error}
+          </span>
+        )}
+
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={pending || category.target_amount == null}
+            className="rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+          >
+            Clear target
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={pending}
+              className="rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Target cell — shows the funding target amount (if any) and an "underfunded"
- * badge when this month still needs money to hit the target. A green check
- * shows when the target is fully funded.
+ * badge when this month still needs money to hit the target.
+ *
+ * When the target is satisfied for the month (underfunded === 0) we only claim
+ * "Funded ✓" for the truly-funded case: a monthly cadence, or a non-monthly
+ * cadence whose envelope balance already meets the full target amount. For
+ * non-monthly cadences in a non-anchor month (where nothing is owed yet but the
+ * envelope isn't full) we show a neutral "On track" label instead, so a yearly
+ * target doesn't misleadingly read as "Funded" eleven months of the year.
+ *
+ * The whole cell is a button that opens a compact inline {@link TargetEditor}
+ * to create, edit, or clear the target.
  */
 function TargetCell({ category }: { category: CategoryState }) {
-  if (category.target_amount == null) {
-    return <span className="text-xs text-slate-300">—</span>
-  }
+  const [editing, setEditing] = useState(false)
   const under = category.underfunded
+
+  const trulyFunded =
+    under === 0 &&
+    (category.target_cadence === 'monthly' ||
+      category.target_amount == null ||
+      category.available >= category.target_amount)
+
   return (
-    <div className="flex flex-col items-end gap-0.5">
-      <span className="text-xs tabular-nums text-slate-500">
-        {formatMoney(category.target_amount)}
-        {category.target_cadence && category.target_cadence !== 'monthly'
-          ? ` /${category.target_cadence}`
-          : ''}
-      </span>
-      {under > 0 ? (
-        <span
-          data-testid={`underfunded-${category.id}`}
-          className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
-        >
-          {formatMoney(under)} underfunded
-        </span>
-      ) : (
-        <span className="text-xs font-semibold text-emerald-600">Funded ✓</span>
+    <div className="relative flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        aria-label={`Edit target for ${category.name}`}
+        onClick={() => setEditing(true)}
+        className="flex flex-col items-end gap-0.5 rounded px-1 py-0.5 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+      >
+        {category.target_amount == null ? (
+          <span className="text-xs text-slate-300">Set target</span>
+        ) : (
+          <>
+            <span className="text-xs tabular-nums text-slate-500">
+              {formatMoney(category.target_amount)}
+              {category.target_cadence && category.target_cadence !== 'monthly'
+                ? ` /${category.target_cadence}`
+                : ''}
+            </span>
+            {under > 0 ? (
+              <span
+                data-testid={`underfunded-${category.id}`}
+                className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
+              >
+                {formatMoney(under)} underfunded
+              </span>
+            ) : trulyFunded ? (
+              <span className="text-xs font-semibold text-emerald-600">
+                Funded ✓
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-slate-500">
+                On track
+              </span>
+            )}
+          </>
+        )}
+      </button>
+
+      {editing && (
+        <TargetEditor
+          category={category}
+          onClose={() => setEditing(false)}
+        />
       )}
     </div>
   )
@@ -174,7 +406,17 @@ export default function EnvelopeGrid({ month }: EnvelopeGridProps) {
       columnHelper.accessor('name', {
         header: 'Category',
         cell: (info) => (
-          <span className="text-sm text-slate-800">{info.getValue()}</span>
+          <span className="flex items-center gap-2">
+            <span className="text-sm text-slate-800">{info.getValue()}</span>
+            {info.row.original.is_payment && (
+              <span
+                data-testid={`payment-badge-${info.row.original.id}`}
+                className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 ring-1 ring-sky-200"
+              >
+                Payment
+              </span>
+            )}
+          </span>
         ),
       }),
       columnHelper.accessor('assigned', {

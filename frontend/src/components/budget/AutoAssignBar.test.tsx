@@ -59,4 +59,19 @@ describe('AutoAssignBar', () => {
     render(<AutoAssignBar />)
     expect(screen.getByRole('alert')).toHaveTextContent('boom')
   })
+
+  it('shows a success message with remaining ready-to-assign', () => {
+    mockedUseAutoAssign.mockReturnValue({
+      mutate,
+      isPending: false,
+      isError: false,
+      isSuccess: true,
+      data: { ready_to_assign: 12500 },
+    } as unknown as ReturnType<typeof useAutoAssign>)
+    render(<AutoAssignBar />)
+    // 12500 milliunits → $12.50.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Assigned — $12.50 remaining to assign',
+    )
+  })
 })

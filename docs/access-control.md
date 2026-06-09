@@ -51,7 +51,7 @@ three-line config, automatic local HTTPS.
    # Reach BUD at https://<host-lan-ip>:8443 from your phone.
    :8443 {
        tls internal                # self-signed local CA (or use a real cert)
-       basicauth {
+       basic_auth {                # Caddy < 2.8 spells this `basicauth`
            you $2a$14$REPLACE_WITH_THE_HASH_FROM_STEP_1
        }
        reverse_proxy 127.0.0.1:8000

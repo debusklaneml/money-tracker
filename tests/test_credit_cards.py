@@ -144,3 +144,100 @@ def test_mixed_cash_and_credit_overspend_only_cash_docks(db):
     # part at min(30k, 40k) = 30k. So the entire overspend is credit -> 0 cash
     # dock. RTA July = 200k - 50k assigned.
     assert july.ready_to_assign == 150_000
+
+
+def test_mixed_overspend_cash_portion_exceeding_credit_docks_rta(db):
+    """Complement of the above: when the cash overspend EXCEEDS the credit spend,
+    a non-zero cash part still docks RTA (exercises cash_part = overspend -
+    credit_part > 0 in the mixed case)."""
+    chk = _checking(db)
+    cc = _credit(db)
+    _income(db, 200_000, "2026-06-01")
+    groceries = _cat(db, "Groceries")
+    eng = BudgetEngine(db)
+
+    eng.assign(groceries, 50_000, month="2026-06-01")
+    # 70k cash + 10k credit = 80k total -> 30k overspend. Credit caps at 10k, so
+    # 20k of cash overspend docks RTA.
+    _spend(db, chk, groceries, "Groceries", -70_000, "2026-06-10", "g-cash")
+    _spend(db, cc, groceries, "Groceries", -10_000, "2026-06-20", "g-credit")
+
+    july = eng.get_state("2026-07-01")
+    # RTA July = 200k - 50k assigned - 20k cash overspend (30k - 10k credit).
+    assert july.ready_to_assign == 130_000
+
+
+def test_credit_refund_does_not_overdock_rta(db):
+    """Regression (bud-px9): a category overspent on CASH that also receives a
+    credit-card REFUND must dock RTA by only the real cash overspend. A
+    net-positive credit activity must NOT drive credit_part negative and inflate
+    the cash dock (which would silently destroy budgetable RTA)."""
+    chk = _checking(db)
+    cc = _credit(db)
+    _income(db, 300_000, "2026-06-01")
+    groceries = _cat(db, "Groceries")
+    # A second category whose credit SPEND keeps the card's net activity negative,
+    # so the payment category stays non-negative and doesn't itself dock RTA.
+    dining = db.create_category(LOCAL_BUDGET_ID, "Wants", "Dining")
+    eng = BudgetEngine(db)
+
+    eng.assign(groceries, 50_000, month="2026-06-01")
+    eng.assign(dining, 40_000, month="2026-06-01")
+    # Groceries: 100k cash spend + 20k credit refund -> net -80k, overspent 30k;
+    # its net credit activity is +20k (refund-heavy) — the bug trigger.
+    _spend(db, chk, groceries, "Groceries", -100_000, "2026-06-10", "g-cash")
+    _spend(db, cc, groceries, "Groceries", 20_000, "2026-06-12", "g-refund")
+    # Dining: 40k credit spend, fully covered (card net = -40k + 20k = -20k).
+    _spend(db, cc, dining, "Dining", -40_000, "2026-06-15", "d-credit")
+
+    july = eng.get_state("2026-07-01")
+    # Real cash overspend on groceries is exactly 30k (the +20k credit refund is
+    # NOT cash). RTA = 300k income - 90k assigned - 30k cash overspend = 180k.
+    # The pre-fix bug would dock 50k here, yielding 160k.
+    assert july.ready_to_assign == 180_000
+
+
+def test_credit_refund_nets_payment_category_down(db):
+    """A positive (refund) transaction on a credit card reduces the card's
+    payment-category set-aside rather than adding to it."""
+    cc = _credit(db)
+    _income(db, 200_000, "2026-06-01")
+    groceries = _cat(db, "Groceries")
+    pay_id = db.get_payment_category_for_account(LOCAL_BUDGET_ID, cc)["id"]
+    eng = BudgetEngine(db)
+
+    eng.assign(groceries, 100_000, month="2026-06-01")
+    _spend(db, cc, groceries, "Groceries", -80_000, "2026-06-10", "g-spend")
+    _spend(db, cc, groceries, "Groceries", 20_000, "2026-06-12", "g-refund")
+
+    june = eng.get_state("2026-06-01")
+    pay = next(c for c in june.categories if c.id == pay_id)
+    # Net card spend = 80k - 20k refund = 60k set aside on the payment category.
+    assert pay.available == 60_000
+
+
+def test_two_credit_cards_route_to_separate_payment_categories(db):
+    """Each credit card routes its spend into only its own payment category."""
+    db.upsert_account("acct-cc", LOCAL_BUDGET_ID, "Visa", "creditCard",
+                      on_budget=True, closed=False, balance=0,
+                      cleared_balance=0, uncleared_balance=0)
+    db.upsert_account("acct-cc2", LOCAL_BUDGET_ID, "Mastercard", "creditCard",
+                      on_budget=True, closed=False, balance=0,
+                      cleared_balance=0, uncleared_balance=0)
+    db.sync_payment_categories(LOCAL_BUDGET_ID)
+    _income(db, 200_000, "2026-06-01")
+    groceries = _cat(db, "Groceries")
+    pay_visa = db.get_payment_category_for_account(LOCAL_BUDGET_ID, "acct-cc")["id"]
+    pay_mc = db.get_payment_category_for_account(LOCAL_BUDGET_ID, "acct-cc2")["id"]
+    assert pay_visa != pay_mc
+    eng = BudgetEngine(db)
+
+    eng.assign(groceries, 100_000, month="2026-06-01")
+    _spend(db, "acct-cc", groceries, "Groceries", -30_000, "2026-06-10", "v-spend")
+    _spend(db, "acct-cc2", groceries, "Groceries", -50_000, "2026-06-11", "m-spend")
+
+    june = eng.get_state("2026-06-01")
+    pv = next(c for c in june.categories if c.id == pay_visa)
+    pm = next(c for c in june.categories if c.id == pay_mc)
+    assert pv.available == 30_000
+    assert pm.available == 50_000

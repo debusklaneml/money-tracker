@@ -89,6 +89,21 @@ describe('MobileNav', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('closes the drawer via the close button', async () => {
+    const user = userEvent.setup()
+    renderShell()
+
+    await user.click(
+      screen.getByRole('button', { name: /open navigation menu/i }),
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // The header close button is the only "Close navigation menu" affordance.
+    await user.click(
+      screen.getByRole('button', { name: /close navigation menu/i }),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('closes the drawer on backdrop click and Escape', async () => {
     const user = userEvent.setup()
     renderShell()
@@ -98,11 +113,7 @@ describe('MobileNav', () => {
       screen.getByRole('button', { name: /open navigation menu/i }),
     )
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    // The backdrop is the first "Close navigation menu" affordance.
-    const closeButtons = screen.getAllByRole('button', {
-      name: /close navigation menu/i,
-    })
-    await user.click(closeButtons[0])
+    await user.click(screen.getByTestId('mobile-nav-backdrop'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     // Escape key.
@@ -112,5 +123,39 @@ describe('MobileNav', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('moves focus into the drawer on open and restores it to the trigger on close', async () => {
+    const user = userEvent.setup()
+    renderShell()
+
+    const trigger = screen.getByRole('button', {
+      name: /open navigation menu/i,
+    })
+    await user.click(trigger)
+
+    // Focus moved into the drawer (the close button is the first focusable).
+    const closeButton = screen.getByRole('button', {
+      name: /close navigation menu/i,
+    })
+    expect(closeButton).toHaveFocus()
+
+    // Closing restores focus to the hamburger trigger.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('locks body scroll while the drawer is open and restores it on close', async () => {
+    const user = userEvent.setup()
+    renderShell()
+
+    expect(document.body.style.overflow).toBe('')
+    await user.click(
+      screen.getByRole('button', { name: /open navigation menu/i }),
+    )
+    expect(document.body.style.overflow).toBe('hidden')
+    await user.keyboard('{Escape}')
+    expect(document.body.style.overflow).toBe('')
   })
 })

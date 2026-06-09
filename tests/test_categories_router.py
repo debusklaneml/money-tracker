@@ -157,3 +157,43 @@ def test_404_on_missing_category(client):
         f"/api/categories/{missing}/hidden", json={"hidden": True}
     ).status_code == 404
     assert client.delete(f"/api/categories/{missing}").status_code == 404
+    # The target endpoints guard the parent category too.
+    assert client.get(f"/api/categories/{missing}/target").status_code == 404
+    assert client.put(
+        f"/api/categories/{missing}/target",
+        json={"amount_milliunits": 1000, "cadence": "monthly", "mode": "refill"},
+    ).status_code == 404
+    assert client.delete(f"/api/categories/{missing}/target").status_code == 404
+
+
+def test_invalid_target_cadence_or_mode_rejected(client):
+    cat_id = client.get("/api/categories").json()[0]["id"]
+    # Unknown cadence / mode / non-positive amount -> 422 (not silently stored).
+    assert client.put(
+        f"/api/categories/{cat_id}/target",
+        json={"amount_milliunits": 1000, "cadence": "daily", "mode": "refill"},
+    ).status_code == 422
+    assert client.put(
+        f"/api/categories/{cat_id}/target",
+        json={"amount_milliunits": 1000, "cadence": "monthly", "mode": "bogus"},
+    ).status_code == 422
+    assert client.put(
+        f"/api/categories/{cat_id}/target",
+        json={"amount_milliunits": 0, "cadence": "monthly", "mode": "refill"},
+    ).status_code == 422
+
+
+def test_delete_category_removes_its_target(client):
+    """Deleting a category must not leave an orphan row in category_targets."""
+    from backend import deps
+
+    db = deps.get_db()
+    cat_id = client.get("/api/categories").json()[0]["id"]
+    assert client.put(
+        f"/api/categories/{cat_id}/target",
+        json={"amount_milliunits": 50_000, "cadence": "monthly", "mode": "refill"},
+    ).status_code == 200
+    assert db.get_category_target(cat_id) is not None
+
+    assert client.delete(f"/api/categories/{cat_id}").status_code == 200
+    assert db.get_category_target(cat_id) is None

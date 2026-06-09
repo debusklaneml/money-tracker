@@ -126,7 +126,7 @@ Intel is `/usr/local/bin/uv`.)
 ## 4. Put a reverse proxy in front (auth + HTTPS)
 
 Follow [access-control.md](./access-control.md) — the recommended setup is Caddy
-listening on `:8443` with `basicauth` + `tls internal`, reverse-proxying to
+listening on `:8443` with `basic_auth` + `tls internal`, reverse-proxying to
 `127.0.0.1:8000`. Run it as its own service (systemd unit / `caddy start` / brew
 service) so it survives reboots alongside BUD.
 

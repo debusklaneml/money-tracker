@@ -9,8 +9,21 @@ state and assign/move round-trip against real category ids.
 import os
 import tempfile
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _isolate_deps_cache():
+    """Guarantee the deps lru_caches don't leak a stale (deleted-temp-db) Database
+    to later tests, per the CLAUDE.md isolation contract — even if a test's own
+    teardown is skipped by an assertion failure."""
+    yield
+    from backend import deps
+
+    deps.get_db.cache_clear()
+    deps.get_budget_id.cache_clear()
 
 
 def _build_client_and_db():
@@ -19,11 +32,12 @@ def _build_client_and_db():
     os.environ["BUD_DB_PATH"] = db_path
 
     # Import AFTER setting BUD_DB_PATH so the cached singletons bind to the temp db.
-    from backend.deps import get_db
+    from backend.deps import get_budget_id, get_db
     from backend.routers import budget
 
     # Reset any lru_cache state in case deps was imported earlier in the session.
     get_db.cache_clear()
+    get_budget_id.cache_clear()
     db = get_db()
     db.ensure_local_budget()
 
@@ -194,6 +208,44 @@ def test_auto_assign_underfunded_endpoint():
         target_cat = next(c for c in state["categories"] if c["id"] == c0)
         assert target_cat["assigned"] == 50_000
         assert target_cat["underfunded"] == 0
+    finally:
+        os.environ.pop("BUD_DB_PATH", None)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
+def test_auto_assign_underfunded_endpoint_respects_rta_guard():
+    """Through HTTP: when cash is the binding constraint, auto-assign funds the
+    biggest need first and partially fills the rest, never exceeding RTA."""
+    client, db, db_path = _build_client_and_db()
+    try:
+        from src.cache.database import LOCAL_BUDGET_ID
+
+        # Clear the seeded default targets so only our two drive the funding.
+        for cid in list(db.get_category_targets(LOCAL_BUDGET_ID)):
+            db.delete_category_target(cid)
+
+        cats = client.get("/api/budget").json()["categories"]
+        big, small = cats[0]["id"], cats[1]["id"]
+        db.upsert_category_target(LOCAL_BUDGET_ID, big, 100_000,
+                                  cadence="monthly", mode="refill")
+        db.upsert_category_target(LOCAL_BUDGET_ID, small, 40_000,
+                                  cadence="monthly", mode="refill")
+        # 120k income vs 140k of need -> RTA is the binding constraint.
+        _seed_income(db, 120_000, "2026-06-01")
+
+        resp = client.post(
+            "/api/budget/auto-assign",
+            json={"strategy": "underfunded", "month": "2026-06-01"},
+        )
+        assert resp.status_code == 200, resp.text
+        state = resp.json()
+        big_cat = next(c for c in state["categories"] if c["id"] == big)
+        small_cat = next(c for c in state["categories"] if c["id"] == small)
+        # Biggest need fully funded; the 20k remainder goes to the smaller one.
+        assert big_cat["assigned"] == 100_000
+        assert small_cat["assigned"] == 20_000
+        assert state["ready_to_assign"] == 0
     finally:
         os.environ.pop("BUD_DB_PATH", None)
         if os.path.exists(db_path):

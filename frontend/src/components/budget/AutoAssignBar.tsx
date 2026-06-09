@@ -7,6 +7,7 @@
 import { useState } from 'react'
 
 import { useAutoAssign } from '../../lib/queries'
+import { formatMoney } from '../../lib/money'
 import type { AutoAssignStrategy } from '../../lib/types'
 
 interface AutoAssignBarProps {
@@ -54,6 +55,13 @@ export default function AutoAssignBar({ month }: AutoAssignBarProps) {
           {autoAssign.error instanceof Error
             ? autoAssign.error.message
             : 'Auto-assign failed.'}
+        </span>
+      )}
+      {autoAssign.isSuccess && (
+        <span role="status" className="text-xs font-medium text-emerald-600">
+          {autoAssign.data
+            ? `Assigned — ${formatMoney(autoAssign.data.ready_to_assign)} remaining to assign`
+            : 'Assigned.'}
         </span>
       )}
     </div>

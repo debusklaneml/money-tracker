@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 type NavSection = {
@@ -24,20 +24,70 @@ export default function MobileNav({
   sections: readonly NavSection[]
 }) {
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
-  // Dismiss with the Escape key while the drawer is open.
+  // While the drawer is open: dismiss with Escape, lock body scroll, manage
+  // focus (move focus in, trap Tab/Shift+Tab, restore to the trigger on close).
   useEffect(() => {
     if (!open) return
+
+    const drawer = drawerRef.current
+
+    // Lock body scroll, remembering the previous value to restore on cleanup.
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    // Move focus into the drawer (the close button, or first focusable).
+    const getFocusable = () =>
+      drawer
+        ? Array.from(
+            drawer.querySelectorAll<HTMLElement>(
+              'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          )
+        : []
+    getFocusable()[0]?.focus()
+
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        return
+      }
+      // Trap Tab within the drawer, wrapping first <-> last.
+      if (e.key === 'Tab') {
+        const focusable = getFocusable()
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement as HTMLElement | null
+        if (e.shiftKey) {
+          if (active === first || !drawer?.contains(active)) {
+            e.preventDefault()
+            last.focus()
+          }
+        } else {
+          if (active === last || !drawer?.contains(active)) {
+            e.preventDefault()
+            first.focus()
+          }
+        }
+      }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = previousOverflow
+      // Restore focus to the hamburger trigger when the drawer closes.
+      triggerRef.current?.focus()
+    }
   }, [open])
 
   return (
     <div className="md:hidden">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open navigation menu"
@@ -64,16 +114,19 @@ export default function MobileNav({
 
       {open && (
         <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
-          <button
-            type="button"
-            aria-label="Close navigation menu"
+          {/* Backdrop — purely decorative; closes on click but isn't a focus
+              stop or a redundant accessible name (the header has the real
+              "Close navigation menu" button). */}
+          <div
+            aria-hidden="true"
+            data-testid="mobile-nav-backdrop"
             onClick={() => setOpen(false)}
             className="absolute inset-0 bg-slate-900/40"
           />
 
           {/* Drawer */}
           <div
+            ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label="Main navigation"

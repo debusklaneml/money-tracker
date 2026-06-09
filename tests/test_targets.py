@@ -123,3 +123,20 @@ def test_engine_full_target_ignores_carryin(db):
     g = next(c for c in july.categories if c.id == groceries)
     # Full: still wants 100k in July even though 100k carried in.
     assert g.underfunded == 100_000
+
+
+def test_deleting_target_clears_it_from_budget_state(db):
+    """Once a target is deleted, the engine stops reporting target/underfunded."""
+    _income(db, 500_000, "2026-06-01")
+    groceries = _cat(db, "Groceries")
+    db.upsert_category_target(LOCAL_BUDGET_ID, groceries, 100_000,
+                              cadence="monthly", mode="refill")
+    eng = BudgetEngine(db)
+    g = next(c for c in eng.get_state("2026-06-01").categories if c.id == groceries)
+    assert g.target_amount == 100_000 and g.underfunded == 100_000
+
+    db.delete_category_target(groceries)
+    g = next(c for c in eng.get_state("2026-06-01").categories if c.id == groceries)
+    assert g.target_amount is None
+    assert g.target_needed == 0
+    assert g.underfunded == 0
