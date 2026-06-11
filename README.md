@@ -159,64 +159,28 @@ cd frontend && npm run e2e
 > `.venv/bin/python -m pytest` and
 > `.venv/bin/python -m uvicorn backend.main:app --reload`.
 
-## Contributing — issue tracking (beads)
+## Contributing — issue tracking (GitHub)
 
-This project tracks issues with **[beads](https://github.com/gastownhall/beads)**
-(`bd`). Multiple people contribute from different machines through this one
-GitHub repo, and **beads issues do not travel with `git pull`.** There are two
-separate sync channels riding the same remote:
-
-| Channel | Command | Carries |
-| --- | --- | --- |
-| Code | `git pull` / `git push` | source code (+ a passive `.beads/issues.jsonl` export) |
-| Issues | `bd dolt pull` / `bd dolt push` | the real issue database (`refs/dolt/data`) |
-
-A plain `git pull` only refreshes the `issues.jsonl` *file*; it does **not**
-update your local issue database, and importing that file is an anti-pattern
-(it's upsert-only and misses deletions). Sync issues with `bd dolt pull/push`.
-
-**First time on a new machine** (after cloning the repo) — or any time issue sync
-seems off — run the onboarding script. It works whether or not you've used `bd`
-here before:
+This project tracks work as **GitHub issues** on this repo. Shared state lives
+server-side, so there's nothing extra to sync — `git pull` / `git push` for code,
+and `gh` for issues:
 
 ```bash
-sh scripts/beads-onboard.sh
+gh issue list --search "is:open -is:blocked no:assignee"   # the ready set
+gh issue view <issue#> --json title,body,labels            # view an issue
+gh issue edit <issue#> --add-assignee @me                  # claim before touching code
+gh pr create --draft --fill --body "Closes #<issue#>"      # draft PR on first push
 ```
 
-It enables the pre-push guard and either bootstraps the shared issue history or,
-if you already have a local beads DB, rescues your local issues and adopts the
-canonical history (then tells you how to re-add any local-only work). Verify with
-`bd ready`.
+Conventions: **claim before you touch code** (self-assign + move to In Progress),
+one branch + worktree per issue (`<issue#>-<slug>`), open a **draft PR on first
+push** with `Closes #<issue#>`, and file discovered follow-up work as new issues
+rather than TODO comments. Labels: `type:{bug,task,feature,epic}`,
+`priority:{p0..p3}`, `epic:bud`.
 
-> Using Claude Code? Just run **`/fix-beads`** — it drives this script, helps you
-> keep any local-only issues, and verifies you're synced. It's the one thing to
-> run if your beads ever look out of sync.
-
-> **Everyone runs the same `bd` version** — pinned in [`.bd-version`](.bd-version)
-> (currently `1.0.4`; `brew reinstall beads` to match). Version drift causes
-> schema-migration errors; the onboarding script warns you if you're off.
-> **Do not use `bd 1.0.5`** — it's a prerelease that can silently break
-> multi-machine `bd dolt` sync (Homebrew reverted to 1.0.4; fix in 1.0.6).
-
-> **Already have a local `bud` DB?** A bare `bd bootstrap` will fail with
-> `Error 1007: can't create database bud; database exists` — that's expected, and
-> exactly why you should use the script above instead.
-
-The repo ships a **pre-push guard** (`.githooks/pre-push`): once you set
-`core.hooksPath` above, every `git push` first verifies your Dolt remote is wired
-and runs `bd dolt push` for you, aborting the push if issues can't sync — so code
-and issues never drift apart. Bypass in a pinch with `git push --no-verify`.
-
-**Each session (steady state):** `bd dolt pull` before you start, `bd dolt push`
-when you finish (alongside your `git push`) — the direct analog of `git pull` /
-`git push`, exactly as the beads docs prescribe. **Re-aligning a machine that
-already has the shared DB is just `bd dolt pull`** — you only need the
-`beads-onboard.sh` repair once, if your DB started as an independent history.
-
-For Claude Code sessions this is largely automatic: `SessionStart` runs
-`bd dolt pull` and the pre-push guard runs `bd dolt push` on `git push`. Point
-your agent at [`CLAUDE.md`](CLAUDE.md) for the agent-ready details. Full model:
-[beads SYNC_CONCEPTS.md](https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md).
+For Claude Code sessions, the `/next`, `/claim`, and `/plan-ingest` commands drive
+this; point your agent at [`CLAUDE.md`](CLAUDE.md) for the details and
+`agentic_dev_workflow.md` for the full team workflow model.
 
 ## Self-hosting & remote access
 
